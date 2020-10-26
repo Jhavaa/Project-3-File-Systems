@@ -7,7 +7,7 @@
 #include "LibFS.h"
 
 // set to 1 to have detailed debug print-outs and 0 to have none
-#define FSDEBUG 0
+#define FSDEBUG 1
 
 #if FSDEBUG
 #define dprintf printf
@@ -112,12 +112,88 @@ static int check_magic()
   else return 0;
 }
 
+// Function to convert 8 bits to a byte 
+// based on the corresponding numerical value
+unsigned char bits_to_byte(int *bits)
+{
+   unsigned char char_byte;
+   int power_value=1; 
+   char_byte=0;
+   for (int i=0;i<8;i++)
+   {
+     //printf("%d\n",bits[i]);
+     if (i>0) {     
+     	power_value*=2;
+     }
+     char_byte+=bits[7-i]*power_value;
+   }
+   // Testing byte 
+   dprintf("Bits to byte: %d\n", char_byte);
+   return char_byte;
+}
+
 // initialize a bitmap with 'num' sectors starting from 'start'
 // sector; all bits should be set to zero except that the first
 // 'nbits' number of bits are set to one
 static void bitmap_init(int start, int num, int nbits)
 {
   /* YOUR CODE */
+  char buf[SECTOR_SIZE];
+  unsigned char all_ones=255;
+  //unsigned char all_zeros=0;
+  int start_sector;
+
+  // Find the number of sectors and bytes with all the bit values of 1
+  int num_full_sectors=(nbits/8)/SECTOR_SIZE;
+  //dprintf("full sector number: %d\n",num_full_sectors);
+  memset(buf, all_ones, SECTOR_SIZE);
+  for (int j=0; j<num_full_sectors; j++)
+  {
+     if(Disk_Write(start+j, buf) < 0) 
+       dprintf("Error in writing initialized bitmap to disk");
+  }
+
+  // For the sector with partially full bytes
+  // Bytes with all ones
+  start_sector=start+num_full_sectors;
+  int num_full_bytes=(nbits-num_full_sectors*SECTOR_SIZE*8)/8;
+  //dprintf("Number of full bytes: %d\n",num_full_bytes);
+  for (int i=0; i<num_full_bytes;i++)
+  {
+      buf[i]=all_ones;
+  }
+  // The byte that is between zero and all ones
+  int remaining_bits=nbits-num_full_sectors*SECTOR_SIZE*8-num_full_bytes*8;
+  //dprintf("Remaining bits:%d\n",remaining_bits); 
+  int bits_array[8];
+  for (int i=0; i<remaining_bits;i++)
+  {
+    bits_array[i]=1;
+  }
+  for (int i=remaining_bits; i<8;i++)
+  {
+    bits_array[i]=0;
+  }
+  buf[num_full_bytes]=bits_to_byte(bits_array);  
+  // Bytes with all zeors
+  for (int j=num_full_bytes+1;j<SECTOR_SIZE;j++)
+  {
+    //buf[j]=all_zeros;
+    buf[j]=0;
+  }
+  if(Disk_Write(start_sector, buf) < 0) 
+       dprintf("Error in writing initialized bitmap to disk");
+
+  // Sectors with all zeros
+  start_sector=start_sector+1;
+  //memset(buf, all_zeros, SECTOR_SIZE);
+  memset(buf, 0, SECTOR_SIZE);
+  for (int j=0; j<num-num_full_sectors-1; j++)
+  {
+     if(Disk_Write(start_sector+j, buf) < 0)        
+       dprintf("Error in writing initialized bitmap to disk");
+  }
+  dprintf("... update bitmap sector is done\n");
 }
 
 // set the first unused bit from a bitmap of 'nbits' bits (flip the
