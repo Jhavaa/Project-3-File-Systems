@@ -118,6 +118,18 @@ static int check_magic()
 static void bitmap_init(int start, int num, int nbits)
 {
   /* YOUR CODE */
+
+  /* 1. Create a global binary array to represent the bitmap.
+      - The bitmap will only require integer values 0 and 1.
+     2. Define the size of the array, so that MAX_FILES bits can be contained in it.
+      - The number of bytes is represented by INODE_BITMAP_SIZE.
+      - INODE_BITMAP_SIZE takes the MAX_FILES number and turns it into a byte length usable for here.
+     3. 'num' sectors will be used, starting from the 'start' sector.
+      - There is a TOTAL_SECTORS amount of sectors. This is the upperbound.
+      - Each sector has a size of SECTOR_SIZE bytes.
+      - Bitmap length is SECTOR_SIZE * 'num'
+     4. The first 'nbits' number of bits in the bitmap are set to 1, while the rest are 0.*/
+
 }
 
 // set the first unused bit from a bitmap of 'nbits' bits (flip the
@@ -126,6 +138,11 @@ static void bitmap_init(int start, int num, int nbits)
 static int bitmap_first_unused(int start, int num, int nbits)
 {
   /* YOUR CODE */
+
+  /* 1. 'start' and 'num' are the same values from bitmap_init.
+      - 'start' will be our starting sector.
+      - 'num' will be the number of sectors to travel across. */
+
   return -1;
 }
 
@@ -144,6 +161,31 @@ static int bitmap_reset(int start, int num, int ibit)
 static int illegal_filename(char* name)
 {
   /* YOUR CODE */
+
+  /* 1. Identify all legal characters for a file name.
+      - An array of legal characters can be used to check each character in a file name.
+      - Possibly regex can be used.
+     2. Make sure file name is less than MAX_NAME - 1 in length.
+      - This should be the first check to avoid any wasted time.*/
+
+  char* legal = "abcdefghijklmnopqrstuvwxyz0123456789.-_";
+
+  // Check if the length of name is less than MAX_NAME - 1
+  //If yes, enter the if statement. Otherwise, return 1.
+  if(strlen(name) < MAX_NAME - 1){
+    // Begin checking if characters are legal
+    int i;
+    for(i = 0; i < strlen(name); i++){
+      // Check if name[i] is in the legal char* and return the position.
+      //if the character is not in legal, pos == NULL and returns 1.
+      if(strchr(legal, name[i]) == NULL){
+        break;
+      }
+    }
+    if(i == strlen(name)){
+      return 0;
+    }
+  }
   return 1; 
 }
 
