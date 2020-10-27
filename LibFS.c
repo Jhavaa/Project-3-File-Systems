@@ -220,8 +220,34 @@ static int bitmap_reset(int start, int num, int ibit)
 static int illegal_filename(char* name)
 {
   /* YOUR CODE */
+ 
+  /* 1. Identify all legal characters for a file name.
+      - An array of legal characters can be used to check each character in a file name.
+      - Possibly regex can be used.
+     2. Make sure file name is less than MAX_NAME - 1 in length.
+      - This should be the first check to avoid any wasted time.*/
+ 
+  char* legal = "abcdefghijklmnopqrstuvwxyz0123456789.-_";
+ 
+  // Check if the length of name is less than MAX_NAME - 1
+  //If yes, enter the if statement. Otherwise, return 1.
+  if(strlen(name) < MAX_NAME - 1){
+    // Begin checking if characters are legal
+    int i;
+    for(i = 0; i < strlen(name); i++){
+      // Check if name[i] is in the legal char* and return the position.
+      //if the character is not in legal, pos == NULL and returns 1.
+      if(strchr(legal, name[i]) == NULL){
+        break;
+      }
+    }
+    if(i == strlen(name)){
+      return 0;
+    }
+  }
   return 1; 
 }
+
 
 // return the child inode of the given file name 'fname' from the
 // parent inode; the parent inode is currently stored in the segment
