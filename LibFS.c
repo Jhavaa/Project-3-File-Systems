@@ -116,19 +116,21 @@ static int check_magic()
 // based on the corresponding numerical value
 unsigned char bits_to_byte(int *bits)
 {
-   unsigned char char_byte;
+   unsigned char char_byte;   
+   // The powers of 2 is stored in the variable power_value
    int power_value=1; 
+   // The variable char_byte is used for the converted byte value
    char_byte=0;
    for (int i=0;i<8;i++)
    {
-     //printf("%d\n",bits[i]);
+     //dprintf("%d\n",bits[i]);
      if (i>0) {     
      	power_value*=2;
      }
      char_byte+=bits[7-i]*power_value;
    }
    // Testing byte 
-   dprintf("Bits to byte: %d\n", char_byte);
+   dprintf("...... bits to byte: %d\n", char_byte);
    return char_byte;
 }
 
@@ -138,6 +140,10 @@ unsigned char bits_to_byte(int *bits)
 static void bitmap_init(int start, int num, int nbits)
 {
   /* YOUR CODE */
+
+  dprintf("... bitmap_init\n");
+  dprintf("...... start=%d, num=%d, nbits=%d\n", start, num, nbits);
+
   char buf[SECTOR_SIZE];
   unsigned char all_ones=255;
   //unsigned char all_zeros=0;
@@ -145,7 +151,7 @@ static void bitmap_init(int start, int num, int nbits)
 
   // Find the number of sectors and bytes with all the bit values of 1
   int num_full_sectors=(nbits/8)/SECTOR_SIZE;
-  //dprintf("full sector number: %d\n",num_full_sectors);
+  dprintf("...... full sector number: %d\n",num_full_sectors);
   memset(buf, all_ones, SECTOR_SIZE);
   for (int j=0; j<num_full_sectors; j++)
   {
@@ -157,14 +163,14 @@ static void bitmap_init(int start, int num, int nbits)
   // Bytes with all ones
   start_sector=start+num_full_sectors;
   int num_full_bytes=(nbits-num_full_sectors*SECTOR_SIZE*8)/8;
-  //dprintf("Number of full bytes: %d\n",num_full_bytes);
+  dprintf("...... number of full bytes: %d\n",num_full_bytes);
   for (int i=0; i<num_full_bytes;i++)
   {
       buf[i]=all_ones;
   }
   // The byte that is between zero and all ones
   int remaining_bits=nbits-num_full_sectors*SECTOR_SIZE*8-num_full_bytes*8;
-  //dprintf("Remaining bits:%d\n",remaining_bits); 
+  dprintf("...... remaining bits:%d\n",remaining_bits); 
   int bits_array[8];
   for (int i=0; i<remaining_bits;i++)
   {
@@ -193,7 +199,7 @@ static void bitmap_init(int start, int num, int nbits)
      if(Disk_Write(start_sector+j, buf) < 0)        
        dprintf("Error in writing initialized bitmap to disk");
   }
-  dprintf("... update bitmap sector is done\n");
+  dprintf("...... update bitmap sector is done\n");
 }
 
 // set the first unused bit from a bitmap of 'nbits' bits (flip the
@@ -202,6 +208,84 @@ static void bitmap_init(int start, int num, int nbits)
 static int bitmap_first_unused(int start, int num, int nbits)
 {
   /* YOUR CODE */
+
+  dprintf("... bitmap_first_unused\n");
+  dprintf("...... bitmap_first_unused: start=%d, num=%d, nbits=%d\n",start, num, nbits);
+
+  char buf[SECTOR_SIZE];
+  unsigned char all_ones=255;
+  // ending_byte is used to determine the ending location of bitmap
+  // a bitmap may not occupy the whole sector
+  int ending_byte=SECTOR_SIZE;
+  int flag_flip=0;
+  int ibit=-1;
+
+  // Loop through all the bitmap sectors
+  for (int i=0; i<num; i++)
+  {
+    Disk_Read(start+i, buf);
+    // Find the ending location of bitmap in each sector
+    if (i<num-1)
+    {
+      ending_byte=SECTOR_SIZE;
+    }
+    else
+    {
+      ending_byte=nbits-i*SECTOR_SIZE;
+      dprintf("...... ending byte is %d\n",ending_byte);
+    }
+    for (int j=0; j<ending_byte; j++)
+    {
+       unsigned char unfull_byte=(unsigned char)buf[j];
+       if(unfull_byte!=all_ones)
+       {
+         // Not full byte
+         
+         // Byte before flip
+         dprintf("...... byte before flip:");
+         for (int m=0;m<8;m++)
+         {
+             dprintf("%d", !!((unfull_byte<< m) & 0x80));
+         }
+         dprintf("\n");
+
+         int bits[8];
+         for (int k=0; k<8; k++)
+         {
+            bits[k]=!!((unfull_byte<< k) & 0x80);  
+            if(bits[k]==0 && flag_flip==0)
+            {
+               // Flip the bit
+               bits[k]=1; 
+               flag_flip=1; 
+               // Bit location
+               ibit=i*SECTOR_SIZE*8+j*8+k;
+               dprintf("...... first unused bit: %d\n", ibit);       
+            }
+         }
+         if(flag_flip==1)
+         {
+           buf[j]=bits_to_byte(bits);
+           dprintf("...... byte after flip:");
+           for (int m=0;m<8;m++)
+           {
+             dprintf("%d", !!((((unsigned char)buf[j])<< m) & 0x80));
+           }
+           dprintf("\n");           
+         }
+       }
+       if (flag_flip==1)
+       {         
+         break;
+       }
+    }
+    if(flag_flip==1)
+    {
+       // Write the flipped sector back to disk
+       Disk_Write(start+i, buf);
+       return ibit;
+    }
+  }
   return -1;
 }
 
@@ -459,6 +543,7 @@ int create_file_or_directory(int type, char* pathname)
   int child_inode;
   char last_fname[MAX_NAME];
   int parent_inode = follow_path(pathname, &child_inode, last_fname);
+  dprintf("... parent inode: %d; child_node inode: %d\n", parent_inode, child_inode);
   if(parent_inode >= 0) {
     if(child_inode >= 0) {
       dprintf("... file/directory '%s' already exists, failed to create\n", pathname);
