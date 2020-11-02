@@ -7,7 +7,7 @@
 #include "LibFS.h"
 
 // set to 1 to have detailed debug print-outs and 0 to have none
-#define FSDEBUG 0
+#define FSDEBUG 1
 
 #if FSDEBUG
 #define dprintf printf
@@ -112,6 +112,28 @@ static int check_magic()
   else return 0;
 }
 
+// Function to convert 8 bits to a byte 
+// based on the corresponding numerical value
+unsigned char bits_to_byte(int *bits)
+{
+   unsigned char char_byte;   
+   // The powers of 2 is stored in the variable power_value
+   int power_value=1; 
+   // The variable char_byte is used for the converted byte value
+   char_byte=0;
+   for (int i=0;i<8;i++)
+   {
+     //dprintf("%d\n",bits[i]);
+     if (i>0) {     
+     	power_value*=2;
+     }
+     char_byte+=bits[7-i]*power_value;
+   }
+   // Testing byte 
+   dprintf("...... bits to byte: %d\n", char_byte);
+   return char_byte;
+}
+
 // initialize a bitmap with 'num' sectors starting from 'start'
 // sector; all bits should be set to zero except that the first
 // 'nbits' number of bits are set to one
@@ -119,17 +141,65 @@ static void bitmap_init(int start, int num, int nbits)
 {
   /* YOUR CODE */
 
-  /* 1. Create a global binary array to represent the bitmap.
-      - The bitmap will only require integer values 0 and 1.
-     2. Define the size of the array, so that MAX_FILES bits can be contained in it.
-      - The number of bytes is represented by INODE_BITMAP_SIZE.
-      - INODE_BITMAP_SIZE takes the MAX_FILES number and turns it into a byte length usable for here.
-     3. 'num' sectors will be used, starting from the 'start' sector.
-      - There is a TOTAL_SECTORS amount of sectors. This is the upperbound.
-      - Each sector has a size of SECTOR_SIZE bytes.
-      - Bitmap length is SECTOR_SIZE * 'num'
-     4. The first 'nbits' number of bits in the bitmap are set to 1, while the rest are 0.*/
+  dprintf("... bitmap_init\n");
+  dprintf("...... start=%d, num=%d, nbits=%d\n", start, num, nbits);
 
+  char buf[SECTOR_SIZE];
+  unsigned char all_ones=255;
+  //unsigned char all_zeros=0;
+  int start_sector;
+
+  // Find the number of sectors and bytes with all the bit values of 1
+  int num_full_sectors=(nbits/8)/SECTOR_SIZE;
+  dprintf("...... full sector number: %d\n",num_full_sectors);
+  memset(buf, all_ones, SECTOR_SIZE);
+  for (int j=0; j<num_full_sectors; j++)
+  {
+     if(Disk_Write(start+j, buf) < 0) 
+       dprintf("Error in writing initialized bitmap to disk");
+  }
+
+  // For the sector with partially full bytes
+  // Bytes with all ones
+  start_sector=start+num_full_sectors;
+  int num_full_bytes=(nbits-num_full_sectors*SECTOR_SIZE*8)/8;
+  dprintf("...... number of full bytes: %d\n",num_full_bytes);
+  for (int i=0; i<num_full_bytes;i++)
+  {
+      buf[i]=all_ones;
+  }
+  // The byte that is between zero and all ones
+  int remaining_bits=nbits-num_full_sectors*SECTOR_SIZE*8-num_full_bytes*8;
+  dprintf("...... remaining bits:%d\n",remaining_bits); 
+  int bits_array[8];
+  for (int i=0; i<remaining_bits;i++)
+  {
+    bits_array[i]=1;
+  }
+  for (int i=remaining_bits; i<8;i++)
+  {
+    bits_array[i]=0;
+  }
+  buf[num_full_bytes]=bits_to_byte(bits_array);  
+  // Bytes with all zeors
+  for (int j=num_full_bytes+1;j<SECTOR_SIZE;j++)
+  {
+    //buf[j]=all_zeros;
+    buf[j]=0;
+  }
+  if(Disk_Write(start_sector, buf) < 0) 
+       dprintf("Error in writing initialized bitmap to disk");
+
+  // Sectors with all zeros
+  start_sector=start_sector+1;
+  //memset(buf, all_zeros, SECTOR_SIZE);
+  memset(buf, 0, SECTOR_SIZE);
+  for (int j=0; j<num-num_full_sectors-1; j++)
+  {
+     if(Disk_Write(start_sector+j, buf) < 0)        
+       dprintf("Error in writing initialized bitmap to disk");
+  }
+  dprintf("...... update bitmap sector is done\n");
 }
 
 // set the first unused bit from a bitmap of 'nbits' bits (flip the
@@ -139,10 +209,83 @@ static int bitmap_first_unused(int start, int num, int nbits)
 {
   /* YOUR CODE */
 
-  /* 1. 'start' and 'num' are the same values from bitmap_init.
-      - 'start' will be our starting sector.
-      - 'num' will be the number of sectors to travel across. */
+  dprintf("... bitmap_first_unused\n");
+  dprintf("...... bitmap_first_unused: start=%d, num=%d, nbits=%d\n",start, num, nbits);
 
+  char buf[SECTOR_SIZE];
+  unsigned char all_ones=255;
+  // ending_byte is used to determine the ending location of bitmap
+  // a bitmap may not occupy the whole sector
+  int ending_byte=SECTOR_SIZE;
+  int flag_flip=0;
+  int ibit=-1;
+
+  // Loop through all the bitmap sectors
+  for (int i=0; i<num; i++)
+  {
+    Disk_Read(start+i, buf);
+    // Find the ending location of bitmap in each sector
+    if (i<num-1)
+    {
+      ending_byte=SECTOR_SIZE;
+    }
+    else
+    {
+      ending_byte=nbits-i*SECTOR_SIZE;
+      dprintf("...... ending byte is %d\n",ending_byte);
+    }
+    for (int j=0; j<ending_byte; j++)
+    {
+       unsigned char unfull_byte=(unsigned char)buf[j];
+       if(unfull_byte!=all_ones)
+       {
+         // Not full byte
+         
+         // Byte before flip
+         dprintf("...... byte before flip:");
+         for (int m=0;m<8;m++)
+         {
+             dprintf("%d", !!((unfull_byte<< m) & 0x80));
+         }
+         dprintf("\n");
+
+         int bits[8];
+         for (int k=0; k<8; k++)
+         {
+            bits[k]=!!((unfull_byte<< k) & 0x80);  
+            if(bits[k]==0 && flag_flip==0)
+            {
+               // Flip the bit
+               bits[k]=1; 
+               flag_flip=1; 
+               // Bit location
+               ibit=i*SECTOR_SIZE*8+j*8+k;
+               dprintf("...... first unused bit: %d\n", ibit);       
+            }
+         }
+         if(flag_flip==1)
+         {
+           buf[j]=bits_to_byte(bits);
+           dprintf("...... byte after flip:");
+           for (int m=0;m<8;m++)
+           {
+             dprintf("%d", !!((((unsigned char)buf[j])<< m) & 0x80));
+           }
+           dprintf("\n");           
+         }
+       }
+       if (flag_flip==1)
+       {         
+         break;
+       }
+    }
+    if(flag_flip==1)
+    {
+       // Write the flipped sector back to disk
+       Disk_Write(start+i, buf);
+       return ibit;
+    }
+  }
   return -1;
 }
 
@@ -151,6 +294,55 @@ static int bitmap_first_unused(int start, int num, int nbits)
 static int bitmap_reset(int start, int num, int ibit)
 {
   /* YOUR CODE */
+
+  dprintf("... bitmap_reset\n");
+  dprintf("...... bitmap_reset: start=%d, num=%d, ibit=%d\n",start, num, ibit);
+
+  char buf[SECTOR_SIZE];
+  // int flag_reset=0;
+  int bit_count = 0;
+  // find the position of the bit that needs to reset
+  int pos = ibit % 8;
+
+  // Loop through all the bitmap sectors
+  for (int i = start; i < num; i++)
+  {
+    // Save the ith sector into buf
+    Disk_Read(i, buf);
+    
+    // Find the i-th bit of the sector
+    for(int j = 0; j < SECTOR_SIZE; j++)
+    {
+      // reach the i-th bit
+      // bit_count increments by 8 everytime we loop through another byte in the sector
+      bit_count += 8;
+
+      // if the bit_count passes our target or equals it, we've found our byte
+      if(bit_count >= ibit)
+      {
+        // check the jth byte in buf
+        unsigned char jth_byte=(unsigned char)buf[j];
+        int bits[8];
+
+        // save bits in array
+        for(int k = 0; k < 8; k++)
+        {
+          bits[k] = (jth_byte << k) & 0x80;
+        }
+
+        // Reset bit in 'pos' position
+        bits[pos] = 0;
+
+        // Write back to disk
+        buf[j]=bits_to_byte(bits);
+        Disk_Write(i, buf);
+
+        // Successful reset
+        return 0;
+      }
+    }
+  }
+  // Unsuccessful reset
   return -1;
 }
 
@@ -161,15 +353,15 @@ static int bitmap_reset(int start, int num, int ibit)
 static int illegal_filename(char* name)
 {
   /* YOUR CODE */
-
+ 
   /* 1. Identify all legal characters for a file name.
       - An array of legal characters can be used to check each character in a file name.
       - Possibly regex can be used.
      2. Make sure file name is less than MAX_NAME - 1 in length.
       - This should be the first check to avoid any wasted time.*/
-
+ 
   char* legal = "abcdefghijklmnopqrstuvwxyz0123456789.-_";
-
+ 
   // Check if the length of name is less than MAX_NAME - 1
   //If yes, enter the if statement. Otherwise, return 1.
   if(strlen(name) < MAX_NAME - 1){
@@ -188,6 +380,7 @@ static int illegal_filename(char* name)
   }
   return 1; 
 }
+
 
 // return the child inode of the given file name 'fname' from the
 // parent inode; the parent inode is currently stored in the segment
@@ -399,6 +592,7 @@ int create_file_or_directory(int type, char* pathname)
   int child_inode;
   char last_fname[MAX_NAME];
   int parent_inode = follow_path(pathname, &child_inode, last_fname);
+  dprintf("... parent inode: %d; child_node inode: %d\n", parent_inode, child_inode);
   if(parent_inode >= 0) {
     if(child_inode >= 0) {
       dprintf("... file/directory '%s' already exists, failed to create\n", pathname);
