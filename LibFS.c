@@ -360,11 +360,11 @@ static int illegal_filename(char* name)
      2. Make sure file name is less than MAX_NAME - 1 in length.
       - This should be the first check to avoid any wasted time.*/
  
-  char* legal = "abcdefghijklmnopqrstuvwxyz0123456789.-_";
+  char* legal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_";
  
   // Check if the length of name is less than MAX_NAME - 1
   //If yes, enter the if statement. Otherwise, return 1.
-  if(strlen(name) < MAX_NAME - 1){
+  if(strlen(name) <= MAX_NAME - 1 && strlen(name) > 0){
     // Begin checking if characters are legal
     int i;
     for(i = 0; i < strlen(name); i++){
