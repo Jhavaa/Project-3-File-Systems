@@ -893,15 +893,39 @@ int Dir_Unlink(char* path)
   return -1;
 }
 
+/**
+ * Dir_Size() returns the number of bytes in the directory referred to by path. 
+ * This function should be used to find the size of the directory before calling Dir_Read() (described below) 
+ * to find the contents of the directory.
+ *
+ * The size actually is a product of the number of file/dir existed under the given path. 
+ * To be specific, size = 20 bytes * count_of_entry.
+ */
 int Dir_Size(char* path)
 {
   /* YOUR CODE */
-  return 0;
+  // Test
+  return 20;
+  // return 0;
 }
 
+/**
+ * This method reads the dir specified by the path. It returns the count of the entires (e.g. file or dir). 
+ * Each entry will occupy 20 bytes in the buffer array. The first 16 bytes consist of the name of the entry,
+ * and last 4 bytes are the inode number. 
+ */
 int Dir_Read(char* path, void* buffer, int size)
 {
   /* YOUR CODE */
-  return -1;
+
+  // Test
+  char str[] = "YaoTestText";
+  int file_size = 1024;
+  char file[20];
+  strcpy(file, str); // copy file name
+  strcpy(buffer, str);
+  printf(file);
+  printf("\n");
+  return 1;
 }
 

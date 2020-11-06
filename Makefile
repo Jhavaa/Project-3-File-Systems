@@ -6,11 +6,14 @@ INCS   =
 LIBS   = -R. -L. -lFS -lDisk
 SHLIBS = libDisk.so libFS.so
 
-SRCS   = main.c \
-	simple-test.c \
-	slow-ls.c slow-mkdir.c slow-rmdir.c \
-	slow-touch.c slow-rm.c \
-	slow-cat.c slow-import.c slow-export.c
+#SRCS   = main.c \
+	#simple-test.c \
+	#slow-ls.c slow-mkdir.c slow-rmdir.c \
+	#slow-touch.c slow-rm.c \
+	#slow-cat.c slow-import.c slow-export.c \
+	#./testing/*.c
+
+SRCS = $(wildcard */*.c) # This one will ensure all *.c files are compiled under current dir
 
 OBJS   = $(SRCS:.c=.o)
 TARGETS = $(SRCS:.c=.exe)
