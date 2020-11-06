@@ -904,9 +904,7 @@ int Dir_Unlink(char* path)
 int Dir_Size(char* path)
 {
   /* YOUR CODE */
-  // Test
-  return 20;
-  // return 0;
+  return 0;
 }
 
 /**

@@ -11,7 +11,7 @@ SRCS   = main.c \
 	slow-ls.c slow-mkdir.c slow-rmdir.c \
 	slow-touch.c slow-rm.c \
 	slow-cat.c slow-import.c slow-export.c \
-	$(wildcard testing/*.c) # This one will ensure all *.c files are compiled under current dir
+	$(wildcard testing/*.c) # This one will ensure all *.c files are compiled under testing dir
 
 OBJS   = $(SRCS:.c=.o)
 TARGETS = $(SRCS:.c=.exe)
