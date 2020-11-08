@@ -6,23 +6,16 @@
 
 void usage(char *prog)
 {
-  printf("USAGE: %s [disk] dir\n", prog);
+  printf("USAGE: %s [disk]\n", prog);
   exit(1);
 }
 
 int main(int argc, char *argv[])
 {
-  char *diskfile;
+  char *diskfile = NULL;
   int dir_size = 0;
-  if (argc != 2 && argc != 3) usage(argv[0]);
-  if (argc == 3) 
-  { 
-      diskfile = argv[1];
-  } 
-  else 
-  { 
-      diskfile = "default-disk"; 
-  }
+  if (argc != 2) usage(argv[0]);
+  diskfile = argv[1];
 
   if(FS_Boot(diskfile) < 0) 
   {
@@ -65,6 +58,8 @@ int main(int argc, char *argv[])
   // test non-exist path
   assert(-1 == Dir_Size("/invalid_path"));
   assert(-1 == Dir_Size("/test_dir1/invalid_path/")); 
+
+  printf("####### All Tests Passed ######\n");
 
   if (FS_Sync() < 0)
   {
