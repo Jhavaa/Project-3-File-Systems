@@ -900,11 +900,45 @@ int Dir_Unlink(char* path)
  *
  * The size actually is a product of the number of file/dir existed under the given path. 
  * To be specific, size = 20 bytes * count_of_entry.
+ *
+ * if path is not found, -1 is returned
  */
 int Dir_Size(char* path)
 {
-  /* YOUR CODE */
-  return 0;
+  // Find the child inode 
+  if (path == NULL) 
+  {
+      // invalid path
+      printf("Invalid empty path\n");
+      return -1;
+  }
+
+  int child_inode;
+  char last_fname[MAX_NAME];
+  if (follow_path(path, &child_inode, last_fname) == -1 || child_inode == -1) 
+  {
+      // path not found
+      return -1; 
+  }
+  // Each entry is of size 20 bytes and contains 16-byte names of the files (or directories) 
+  // within the directory named by path, followed by the 4-byte integer inode number.
+  const int ENTRY_SIZE = 20;   
+
+  // get the disk sector containing the parent inode
+  char inode_buffer[SECTOR_SIZE];
+  int inode_sector = INODE_TABLE_START_SECTOR + child_inode/INODES_PER_SECTOR;
+  if(Disk_Read(inode_sector, inode_buffer) < 0) return -1;
+  dprintf("... load inode table for child inode %d from disk sector %d\n",
+                 child_inode, inode_sector);
+
+  // get child inode
+  int inode_start_entry = (inode_sector - INODE_TABLE_START_SECTOR) * INODES_PER_SECTOR;
+  int offset = child_inode - inode_start_entry;
+  assert(0 <= offset && offset < INODES_PER_SECTOR);
+  inode_t* child = (inode_t*)(inode_buffer + offset * sizeof(inode_t));
+  dprintf("... get child inode %d (size=%d, type=%d)\n", child_inode, child->size, child->type);
+
+  return child->size * ENTRY_SIZE;
 }
 
 /**

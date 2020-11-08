@@ -20,6 +20,7 @@ all: $(TARGETS)
 
 clean:
 	rm -f $(TARGETS) $(OBJS) *.so *~
+	rm -f ./*.fs
 
 reset:	clean
 	make -f Makefile.LibDisk clean

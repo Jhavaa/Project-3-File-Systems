@@ -12,35 +12,62 @@ void usage(char *prog)
 
 int main(int argc, char *argv[])
 {
-  char *diskfile, *path;
+  char *diskfile;
   int dir_size = 0;
-  if(argc != 2 && argc != 3) usage(argv[0]);
-  if(argc == 3) { diskfile = argv[1];}
-  else { diskfile = "default-disk"; path = argv[1]; }
+  if (argc != 2 && argc != 3) usage(argv[0]);
+  if (argc == 3) 
+  { 
+      diskfile = argv[1];
+  } 
+  else 
+  { 
+      diskfile = "default-disk"; 
+  }
 
-  if(FS_Boot(diskfile) < 0) {
+  if(FS_Boot(diskfile) < 0) 
+  {
     printf("ERROR: can't boot file system from file '%s'\n", diskfile);
     return -1;
   }
 
-  char* first_dir = "/test_dir1";
-  char* second_dir = "/test_dir2";
+  char *first_dir = "/test_dir1";
+  char *second_dir = "/test_dir2";
+
+  // check root dir
+  assert(0 == Dir_Size("/"));
 
   // Create a directory under root
-  Dir_Create("/test_dir1");
+  Dir_Create(first_dir);
 
   // Confirm if directory exist by calling Dir_size (should return 20)
-  int dirSize = Dir_Size(first_dir);
-  assert(dirSize == 20);
+  dir_size = Dir_Size("/");
+  assert(dir_size == 20);
   
   // Create another directory under root 
-  Dir_Create("/test_dir2");
-  dirSize = Dir_Size(second_dir);
+  // Now, there are two dir under root - /test_dir1 and /test_dir2
+  Dir_Create(second_dir);
+  dir_size = Dir_Size("/");
 
   // Confirm the Dir_size now returns 40 (20 * 2)
-  assert(dirSize == 40);
+  assert(dir_size == 40);
 
-  if(FS_Sync() < 0) {
+  // Testing subdir
+  char *subdir1 = "/test_dir1/test_subdir1";
+  char *subdir2 = "/test_dir1/test_subdir2";
+  char *subdir3 = "/test_dir1/test_subdir3/";
+
+  Dir_Create(subdir1);
+  Dir_Create(subdir2);
+  Dir_Create(subdir3);
+  assert(60 == Dir_Size("/test_dir1/"));
+  assert(40 == Dir_Size("/"));
+
+  // test non-exist path
+  assert(-1 == Dir_Size("/invalid_path"));
+  assert(-1 == Dir_Size("/test_dir1/invalid_path/")); 
+
+  if (FS_Sync() < 0)
+  {
     printf("ERROR: can't sync disk '%s'\n", diskfile);
     return -3;
   }
