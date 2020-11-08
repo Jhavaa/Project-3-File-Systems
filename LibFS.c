@@ -997,25 +997,31 @@ int Dir_Read(char* path, void* buffer, int size)
   int groups = dir_size / FILE_OR_DIR_ENTRY_SIZE / DIRENTS_PER_SECTOR;
   int total_entry_size = dir_size / FILE_OR_DIR_ENTRY_SIZE;
   char dirent_buffer[SECTOR_SIZE];
+  
+  // traverse each dirent group
+  // read dirent from sector
+  if(Disk_Read(child->data[0], dirent_buffer) < 0) return -1;
+  int dirent_offset = 0;
+  int sec_idx = 0;
+  while (sec_idx * DIRENTS_PER_SECTOR + dirent_offset < total_entry_size && offset < DIRENTS_PER_SECTOR) {
+      dirent_t* dirent = (dirent_t*)(dirent_buffer + dirent_offset * sizeof(dirent_t));
+      dprintf("found file name: %-15s with inode %-d\n", dirent, dirent->inode);
 
-  for (int i = 0; i < groups; i++) {
-    memset(dirent_buffer, 0, SECTOR_SIZE);
+      strncpy(buffer, dirent, MAX_NAME);
+      memcpy(buffer + MAX_NAME, &(dirent->inode), sizeof(int));
 
-    // traverse each dirent group
-    // read dirent from sector
-    if(Disk_Read(child->data[i], dirent_buffer) < 0) return -1;
-    int offset = 0;
-    while (i * DIRENTS_PER_SECTOR + offset < total_entry_size) {
-        dirent_t* dirent = (dirent_t*)(dirent_buffer + offset * sizeof(dirent_t));
-        dprintf("found file name: %-15s with inode %-d\n", dirent, dirent->inode);
+      dirent_offset++;        
+      buffer += FILE_OR_DIR_ENTRY_SIZE;
 
-        strncpy(buffer, dirent, MAX_NAME);
-        memcpy(buffer + MAX_NAME, &(dirent->inode), sizeof(int));
+      if (dirent_offset == DIRENTS_PER_SECTOR) {
+          dirent_offset = 0;
+          sec_idx++;
 
-        offset++;        
-        buffer += FILE_OR_DIR_ENTRY_SIZE;
-    }
-    dprintf("...... move to next dirent group %d\n", i);
+          memset(dirent_buffer, 0, SECTOR_SIZE);
+          if(Disk_Read(child->data[sec_idx], dirent_buffer) < 0) return -1;
+
+        dprintf("...... move to next dirent group %d\n", sec_idx);
+      }
   }
 
   dprintf("... total entry size in dir '%s' is: %d\n", path, total_entry_size);

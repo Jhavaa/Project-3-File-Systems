@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
 
   // now check large number of entries that can take multiple sectors 
   printf("## Testing large number of entries\n");
-  int num_dir = 20 + 1; // 20 = 512 (SECTOR_SIZE) / 20 (sizeof(dirent_t))
+  int num_dir = 26; // 26 > 512 (SECTOR_SIZE) / 20 (sizeof(dirent_t))
   char* test_dir_path = malloc(8);
   strcpy(test_dir_path, "/test/");
   test_dir_path[7] = '/';
