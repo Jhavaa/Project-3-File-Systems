@@ -83,6 +83,11 @@ typedef struct _inode {
 // max number of open files is 256
 #define MAX_OPEN_FILES 256
 
+// size of each entry in dir
+// Each entry is of size 20 bytes and contains 16-byte names of the files (or directories) 
+// within the directory named by path, followed by the 4-byte integer inode number.
+#define FILE_OR_DIR_ENTRY_SIZE 20
+
 // each directory entry represents a file/directory in the parent
 // directory, and consists of a file/directory name (less than 16
 // bytes) and an integer inode number
@@ -913,6 +918,8 @@ int Dir_Size(char* path)
       return -1;
   }
 
+  // child inode is the leaf node within the path
+  // For example, path "/a/b/c/" will have dir c as the child inode
   int child_inode;
   char last_fname[MAX_NAME];
   if (follow_path(path, &child_inode, last_fname) == -1 || child_inode == -1) 
@@ -920,11 +927,8 @@ int Dir_Size(char* path)
       // path not found
       return -1; 
   }
-  // Each entry is of size 20 bytes and contains 16-byte names of the files (or directories) 
-  // within the directory named by path, followed by the 4-byte integer inode number.
-  const int ENTRY_SIZE = 20;   
 
-  // get the disk sector containing the parent inode
+  // get the disk sector containing the child inode
   char inode_buffer[SECTOR_SIZE];
   int inode_sector = INODE_TABLE_START_SECTOR + child_inode/INODES_PER_SECTOR;
   if(Disk_Read(inode_sector, inode_buffer) < 0) return -1;
@@ -938,7 +942,7 @@ int Dir_Size(char* path)
   inode_t* child = (inode_t*)(inode_buffer + offset * sizeof(inode_t));
   dprintf("... get child inode %d (size=%d, type=%d)\n", child_inode, child->size, child->type);
 
-  return child->size * ENTRY_SIZE;
+  return child->size * FILE_OR_DIR_ENTRY_SIZE;
 }
 
 /**
@@ -948,16 +952,73 @@ int Dir_Size(char* path)
  */
 int Dir_Read(char* path, void* buffer, int size)
 {
-  /* YOUR CODE */
+  if (path == NULL) {
+    // invalid path
+    return -1;
+  }
 
-  // Test
-  char str[] = "YaoTestText";
-  int file_size = 1024;
-  char file[20];
-  strcpy(file, str); // copy file name
-  strcpy(buffer, str);
-  printf(file);
-  printf("\n");
-  return 1;
+  dprintf("... read dir %s with buffer size %d", path, size);
+
+  int dir_size = Dir_Size(path);
+
+  if (dir_size <= 0) {
+    // path not found or empty dir
+    printf("path not found or empty dir: %s", path);
+    return dir_size;
+  }
+
+  if (size < dir_size) {
+    // buffer isn't big enough to hold the content
+    osErrno = E_BUFFER_TOO_SMALL;
+    return -1;
+  }
+
+  int child_inode;
+  char last_fname[MAX_NAME];
+  if (follow_path(path, &child_inode, last_fname) == -1 || child_inode == -1) 
+  {
+      return -1; // path not found but it should not happen since we already called Dir_Size();
+  }
+
+  // get the disk sector containing the child inode
+  char inode_buffer[SECTOR_SIZE];
+  int inode_sector = INODE_TABLE_START_SECTOR + child_inode/INODES_PER_SECTOR;
+  if(Disk_Read(inode_sector, inode_buffer) < 0) return -1;
+  dprintf("... load inode table for child inode %d from disk sector %d\n",
+                 child_inode, inode_sector);
+
+  // get child inode
+  int inode_start_entry = (inode_sector - INODE_TABLE_START_SECTOR) * INODES_PER_SECTOR;
+  int offset = child_inode - inode_start_entry;
+  assert(0 <= offset && offset < INODES_PER_SECTOR);
+  inode_t* child = (inode_t*)(inode_buffer + offset * sizeof(inode_t));
+  dprintf("... get child inode %d (size=%d, type=%d)\n", child_inode, child->size, child->type);
+
+  int groups = dir_size / FILE_OR_DIR_ENTRY_SIZE / DIRENTS_PER_SECTOR;
+  int total_entry_size = dir_size / FILE_OR_DIR_ENTRY_SIZE;
+  char dirent_buffer[SECTOR_SIZE];
+
+  for (int i = 0; i < groups; i++) {
+    memset(dirent_buffer, 0, SECTOR_SIZE);
+
+    // traverse each dirent group
+    // read dirent from sector
+    if(Disk_Read(child->data[i], dirent_buffer) < 0) return -1;
+    int offset = 0;
+    while (i * DIRENTS_PER_SECTOR + offset < total_entry_size) {
+        dirent_t* dirent = (dirent_t*)(dirent_buffer + offset * sizeof(dirent_t));
+        dprintf("found file name: %-15s with inode %-d\n", dirent, dirent->inode);
+
+        strncpy(buffer, dirent, MAX_NAME);
+        memcpy(buffer + MAX_NAME, &(dirent->inode), sizeof(int));
+
+        offset++;        
+        buffer += FILE_OR_DIR_ENTRY_SIZE;
+    }
+    dprintf("...... move to next dirent group %d\n", i);
+  }
+
+  dprintf("... total entry size in dir '%s' is: %d\n", path, total_entry_size);
+  return total_entry_size;
 }
 
