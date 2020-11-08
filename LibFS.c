@@ -1003,7 +1003,7 @@ int Dir_Read(char* path, void* buffer, int size)
   if(Disk_Read(child->data[0], dirent_buffer) < 0) return -1;
   int dirent_offset = 0;
   int sec_idx = 0;
-  while (sec_idx * DIRENTS_PER_SECTOR + dirent_offset < total_entry_size && offset < DIRENTS_PER_SECTOR) {
+  while (sec_idx * DIRENTS_PER_SECTOR + dirent_offset < total_entry_size) {
       dirent_t* dirent = (dirent_t*)(dirent_buffer + dirent_offset * sizeof(dirent_t));
       dprintf("found file name: %-15s with inode %-d\n", dirent, dirent->inode);
 
