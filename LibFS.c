@@ -621,7 +621,219 @@ int create_file_or_directory(int type, char* pathname)
 int remove_inode(int type, int parent_inode, int child_inode)
 {
   /* YOUR CODE */
-  return -1;
+  
+  /*
+     1. Load and find the child inode
+     2. Reclaim file/directory/data
+     3. Modify parent inode
+     4. Update.
+  */
+
+  //// Load and find the child inode
+
+  // load the disk sector containing the child inode
+
+
+
+  // Think of it as pages in a book: The book starts after the table of contents
+  //                                 Each page holds a certain number of lines
+  //                                 We are looking for a specific line in the book
+  // EX1: child_inode = 1, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
+  // inode_sector = 2 + (1/10) == 2 + 0 == 2
+  // the child node is in sector 2 and is the 2nd (2 % 10) inode there.
+  //
+  // EX2: child_inode = 24, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
+  // inode_sector = 2 + (24/10) == 2 + 2 == 4
+  // the child node is in sector 4 and is the 4th (24 % 10) inode there.
+  int inode_sector = INODE_TABLE_START_SECTOR+child_inode/INODES_PER_SECTOR;
+
+  // a char object array that can hold all the vaules from inode_sector
+  // ** The number of bytes (8 bits) in a sector is defined in SECTOR_SIZE
+  char inode_buffer[SECTOR_SIZE];
+
+  // copy the data from the inode_sector sector (inode_sector is the number of the sector) into inode_buffer
+  if(Disk_Read(inode_sector, inode_buffer) < 0) return -1;
+  dprintf("... load inode table for child inode from disk sector %d\n", inode_sector);
+
+  // get the child inode
+
+
+
+  // inode_start_entry is the position where the inode we are looking for is located.
+  // EX1: child_inode = 1, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
+  // inode_start_entry = (2 - 2) * 10 == 0 * 10 == 0
+  // The inode we are looking for has a 0 in the tens place
+  //
+  // EX2: child_inode = 24, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
+  // inode_start_entry = (4 - 2) * 10 == 2 * 10 == 20
+  // The inode we are looking for has a 2 in the tens place
+  int inode_start_entry = (inode_sector-INODE_TABLE_START_SECTOR)*INODES_PER_SECTOR;
+
+  // offset is the offset value from the start of the sector.
+  // EX1: child_inode = 1, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
+  // offset = 1 - 0 == 1
+  // the child_inode is 1 position away from the start of the sector
+
+  // EX2: child_inode = 24, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
+  // offset = 24 - 20 == 4
+  // the child_inode is 4 positions away from 
+  int offset = child_inode-inode_start_entry;
+  assert(0 <= offset && offset < INODES_PER_SECTOR);
+
+  // child is an inode_t struct that points to the position of the child_inode in inode_buffer.
+  // The value that is saved in inode_buffer is the value child holds.
+  // We multiply offset by sizeof(inode_t), because sizeof(inode_t) is allocated for each inode entry in the sector.
+  // EX: offset = 4
+  // position = offset * sizeof(inode_t) == 4 * 88 == 352
+  // there are 3 inodes prior to the one we are looking for, and they take up 352 bytes.
+  // the inode we are looking for is located on the 352nd byte.
+  inode_t* child = (inode_t*)(inode_buffer+offset*sizeof(inode_t));
+
+  // if child inode is a directory
+  if(child->type == 1 && type == 1)
+  {
+    // check if child->data is empty.
+    int i, n;
+    for(i = 0, n = 0; i < sizeof(child->data)/sizeof(child->data[0]) && n == 0; ++i)
+    {
+      if(child->data[i] != 0)
+      {
+        dprintf("... error: child inode is not empty\n");
+        return -2;
+      }
+    }
+    //// Reclaim directory
+    // set child_inode to 0
+    bitmap_reset(INODE_BITMAP_START_SECTOR, INODE_BITMAP_SECTORS, child_inode);
+    //// Reclaim data
+    memset(child, 0, sizeof(inode_t));
+  }
+  else if(child->type == 0 && type == 0)
+  {
+    //// Reclaim file
+    bitmap_reset(INODE_BITMAP_START_SECTOR, INODE_BITMAP_SECTORS, child_inode);
+    //// Reclaim data
+    memset(child, 0, sizeof(inode_t));
+  }
+  else
+  {
+    dprintf("... error: child inode (type %d) is not type %d\n", child->type, type);
+    return -3;
+  }
+
+  //// Update
+  if(Disk_Write(inode_sector, inode_buffer) < 0) return -1;
+  dprintf("... update child inode on disk sector %d\n", inode_sector);
+  
+
+  // get the disk sector containing the parent inode
+  inode_sector = INODE_TABLE_START_SECTOR+parent_inode/INODES_PER_SECTOR;
+  if(Disk_Read(inode_sector, inode_buffer) < 0) return -1;
+  dprintf("... load inode table for parent inode %d from disk sector %d\n",
+	 parent_inode, inode_sector);
+
+  // get the parent inode
+  inode_start_entry = (inode_sector-INODE_TABLE_START_SECTOR)*INODES_PER_SECTOR;
+  offset = parent_inode-inode_start_entry;
+  assert(0 <= offset && offset < INODES_PER_SECTOR);
+
+  // parent is an inode_t struct that points to the position of the parent_inode in inode_buffer.
+  // The value that is saved in inode_buffer is the value parent holds.
+  inode_t* parent = (inode_t*)(inode_buffer+offset*sizeof(inode_t));
+  dprintf("... get parent inode %d (size=%d, type=%d)\n",
+	 parent_inode, parent->size, parent->type);
+
+  // get the dirent sector
+  if(parent->type != 1) {
+    dprintf("... error: parent inode is not directory\n");
+    return -2; // parent not directory
+  }
+
+  // group is the sector that holds the last byte in parent
+  // EX1: parent->size = 3, DIRENTS_PER_SECTOR = 20
+  // group = parent->size/DIRENTS_PER_SECTOR == 3 / 20 == 0
+  // parent is held in the first sector.
+  // EX2: parent->size = 30, DIRENTS_PER_SECTOR = 20
+  // group = parent->size/DIRENTS_PER_SECTOR == 30 / 20 == 1
+  // parent is held in the first and second sector.
+  // int group = parent->size/DIRENTS_PER_SECTOR;
+  char dirent_buffer[SECTOR_SIZE];
+
+  // Read parent sector (parent->data[group]) and write to dirent_buffer
+  // if(Disk_Read(parent->data[group], dirent_buffer) < 0)
+  //     return -1;
+
+  // Find the dirent refering to the child_inode
+  // start_entry is the starting sector for a new dirent.
+  // int start_entry = group*DIRENTS_PER_SECTOR;
+  // offset = parent->size-start_entry;
+  // dirent_t* dirent = (dirent_t*)(dirent_buffer+offset*sizeof(dirent_t));
+
+  // because inodes are unique, we can search for the file referred to
+  ///by the child_inode by dirent inode.
+  int group, i, j;
+  dirent_t* dirent;
+  offset = 0;
+  // Loop through all the sectors that could contain the child_inode dirent data.
+  for(group = 0; group <= parent->size/DIRENTS_PER_SECTOR; group++)
+  {
+    // read data blocks in parent directory to dirent_buffer
+    if(Disk_Read(parent->data[group], dirent_buffer) < 0)
+      return -1;
+    // check each dirent in the sector
+    for(offset = 0; offset < parent->size; offset++)
+    {
+      dirent = (dirent_t*)(dirent_buffer+offset*sizeof(dirent_t));
+      // if dirent->inode == child_inode, then clear (reclaim) the data.
+      if(dirent->inode == child_inode)
+      {
+        // This for loop is extremely important!!
+        // The purpose of the for loop here is to reclaim the data by shifting all
+        // all the values to the left by sizeof(dirent_t). We shift by sizeof(dirent_t)
+        // because that is how much data we are going to need to fill in the previous
+        // address.
+        for(int j = 0; j < parent->size - offset; j++)
+        {
+
+          // memcpy is used here to copy data, from the right of the current dirent
+          // address, to the current until the end of buffer is reached.
+          // memcpy(destination, source, number of chars)
+          //  destination = dirent + (j * sizeof(dirent_t))
+          //    - dirent is the starting address where the child dirent data is stored
+          //    - j is used to shift the current address we are replacing.
+          //    - sizeof(dirent_t) is the number of bytes we are shifting by.
+          //  source = (dirent_buffer + offset * sizeof(dirent_t)) + j * sizeof(dirent_t) + sizeof(dirent_t)
+          //    - dirent_buffer is the copied sector from before.
+          //    - offset * sizeof(dirent_t) is the number of shifts needed to reach the child dirent.
+          //    - j * sizeof(dirent_t) + sizeof(dirent_t) is the next dirent after the one we want to replace (destination).
+          //  number of chars = sizeof(dirent_t)
+          //    - sizeof(dirent_t) is the number of bytes that we want to copy from source to destination.
+          //      * this is also the number of bytes that makes up one dirent!!
+
+          // strncpy(dirent + (j * sizeof(dirent_t)), (dirent_buffer + offset * sizeof(dirent_t)) + j * sizeof(dirent_t) + sizeof(dirent_t), sizeof(dirent_t));
+
+          memcpy(dirent + (j * sizeof(dirent_t)), (dirent_buffer + offset * sizeof(dirent_t)) + (j * sizeof(dirent_t) + sizeof(dirent_t)), sizeof(dirent_t));
+        }
+    
+      }
+    }
+    
+    // memset(dirent, 0, sizeof(dirent_t));
+    
+    // if(Disk_Read(parent->data[group], dirent_buffer) < 0)
+    //   return -1;
+    
+  }
+
+  //// Modify parent inode
+  parent->size--;
+
+  //// Update
+  if(Disk_Write(inode_sector, inode_buffer) < 0) return -1;
+  dprintf("... update parent inode on disk sector %d\n", inode_sector);
+
+
+  return 0;
 }
 
 // representing an open file
