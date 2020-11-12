@@ -214,6 +214,8 @@ static int bitmap_first_unused(int start, int num, int nbits)
 
   char buf[SECTOR_SIZE];
   unsigned char all_ones=255;
+  unsigned char byte_128=128;
+
   // ending_byte is used to determine the ending location of bitmap
   // a bitmap may not occupy the whole sector
   int ending_byte=SECTOR_SIZE;
@@ -245,14 +247,14 @@ static int bitmap_first_unused(int start, int num, int nbits)
          dprintf("...... byte before flip:");
          for (int m=0;m<8;m++)
          {
-             dprintf("%d", !!((unfull_byte<< m) & 0x80));
+             dprintf("%d", !!((unfull_byte<< m) & byte_128));
          }
          dprintf("\n");
 
          int bits[8];
          for (int k=0; k<8; k++)
          {
-            bits[k]=!!((unfull_byte<< k) & 0x80);  
+            bits[k]=!!((unfull_byte<< k) & byte_128);  
             if(bits[k]==0 && flag_flip==0)
             {
                // Flip the bit
@@ -269,7 +271,7 @@ static int bitmap_first_unused(int start, int num, int nbits)
            dprintf("...... byte after flip:");
            for (int m=0;m<8;m++)
            {
-             dprintf("%d", !!((((unsigned char)buf[j])<< m) & 0x80));
+             dprintf("%d", !!((((unsigned char)buf[j])<< m) & byte_128));
            }
            dprintf("\n");           
          }
@@ -297,8 +299,391 @@ static int bitmap_reset(int start, int num, int ibit)
   return -1;
 }
 
+// Check if a sepcific bit (either inode or sector number) in a bitmap is used or not
+int is_bitmap_set(int start, int nbits, int bit_num)
+{
+  dprintf("... is_bitmap_set: start %d, nbits %d, bit number %d\n", start, nbits, bit_num);
+  
+  // invalid inode or sector number
+  if(bit_num<0 || bit_num>=nbits*8)
+  {
+    dprintf("...... invalid bit number\n");
+    return -1;
+  }
+ 
+  // Find the sector that this bit is located
+  int bit_sector = start+bit_num/(SECTOR_SIZE*8);
+  int bit_start_entry = (bit_sector-start)*(SECTOR_SIZE*8);
+  int offset = (bit_num-bit_start_entry)/8;
+  dprintf("...... the bit is located at %d sector and %d byte\n", bit_sector, offset); 
+
+  // Read the sector
+  char buf[SECTOR_SIZE];
+  Disk_Read(bit_sector, buf); 
+
+  // The byte and the bit that an input bit is located
+  unsigned char bit_byte;
+  unsigned char byte_128=128;
+
+  bit_byte=(unsigned char)buf[offset];
+  dprintf("...... the byte is:");
+  for (int m=0;m<8;m++)
+  {
+    dprintf("%d", !!(((unsigned char)bit_byte<< m) & byte_128));
+  }
+  dprintf("\n"); 
+
+  int k=bit_num-offset*8;
+  dprintf("...... the bit is %d\n",!!((bit_byte<<k) & byte_128));
+  dprintf("...... the location in a byte is %d\n",k);
+  if(!!((bit_byte<<k) & byte_128)==1)
+  {
+    // The input bit is one
+    dprintf("...... the input bit is 1\n");
+    return 1;
+  }
+  else
+  {
+    // The input bit is zero
+    dprintf("...... the input bit is 0\n");
+    return 0;
+  }
+
+  return -1;
+}
+
+// Set the n bits of bitmap to be one based on input locations
+static int bitmap_set_nbits(int start, int max_nbit, int nbits, int* bit_address)
+{
+  /* YOUR CODE */
+  dprintf("... bitmap_set_nbits: start %d, total number of sector bits %d, total number of bits %d\n", start, max_nbit, nbits);
+  
+  // Initialize parameters
+  int remaining_bit=nbits;
+  int ibit;
+  int isector=start;
+  int ibyte;
+
+  char buf[SECTOR_SIZE];
+  int bits[8];
+  int flag_flip=0;
+  int flag_sector_write=0;
+  int ibyte_end_bit=8;
+  unsigned char byte_128=128;
+
+  // Check if the input bits are between 0 and maximum bits
+  for (int i=0; i<nbits; i++)
+  {
+    if(bit_address[i]>(max_nbit*8) || bit_address[i]<0)
+    {
+      dprintf("...... %d input bit of %d is out of bound\n", i, bit_address[i]);
+      return -1;
+    }
+  }
+
+  while(remaining_bit>0)
+  {
+
+    // Find the sector and byte of the bit
+    ibit=bit_address[nbits-remaining_bit];
+    isector = start+ibit/(SECTOR_SIZE*8);
+    ibyte= (ibit-(isector-start)*(SECTOR_SIZE*8))/8;
+    dprintf("...... the bit of %d is located at %d sector, %d byte\n", ibit, isector, ibyte);
+    
+    // Read the sector
+    Disk_Read(isector, buf); 
+    flag_sector_write=0;
+
+    // Check each byte and flip the corresponding bits
+    while (remaining_bit>0 && ibyte<SECTOR_SIZE)
+    {
+      flag_flip=0;
+
+      // Find the end bit in a byte
+      if(remaining_bit<8)
+      {
+        ibyte_end_bit=remaining_bit;
+      }
+      else
+      {
+        ibyte_end_bit=8;
+      }
+      //dprintf("...... the ibyte_end_bit of %d\n", ibyte_end_bit);
+
+      if(bit_address[nbits-remaining_bit]<=(ibyte+1)*8+(isector-start)*SECTOR_SIZE*8 && bit_address[nbits-1]>=ibyte*8+(isector-start)*SECTOR_SIZE*8)
+      {
+        // Do the following only when there are some bits in this byte
+        for(int k=0;k<8;k++)
+        {
+          bits[k]=!!(((unsigned char)buf[ibyte]<< k) & byte_128);  
+          //dprintf("...... %d bit of %d byte is %d\n", k, ibyte, bits[k]);
+
+          for (int l=0; l<ibyte_end_bit; l++)
+          {
+            //dprintf("....... location of bit %d is %d\n", l, bit_address[nbits-remaining_bit+l]);
+            if(bit_address[nbits-remaining_bit+l]==k+ibyte*8+(isector-start)*SECTOR_SIZE*8)
+            {
+              // Set up the bit
+              bits[k]=1;
+              flag_flip++; 
+              //dprintf("...... %d bit of %d byte is changed\n", k, ibyte);
+            }  
+          }
+        }
+        if(flag_flip>0)
+        {
+          dprintf("...... byte before flip:");
+          for (int m=0;m<8;m++)
+          {
+            dprintf("%d", !!((((unsigned char)buf[ibyte])<< m) & byte_128));
+          }
+          dprintf("\n"); 
+
+          buf[ibyte]=bits_to_byte(bits);
+          dprintf("...... byte after flip:");
+          for (int m=0;m<8;m++)
+          {
+            dprintf("%d", !!((((unsigned char)buf[ibyte])<< m) & byte_128));
+          }
+          dprintf("\n"); 
+          remaining_bit=remaining_bit-flag_flip; 
+          flag_sector_write=1;
+        }
+      }
+      ibyte++;
+    }
+    if(flag_sector_write==1)
+    {
+      // Write the flipped sector back to disk
+      Disk_Write(isector, buf);      
+    }
+  }
+  return 0;
+}
+
+// Find n first unused bits and return their addresses 
+// Try to assign bits that are as continuous as possible
+int bitmap_available_address(int start, int num_sectors, int bitmap_size, int nbits, int* nbits_address)
+{
+  dprintf("... bitmap_available_address: need to find %d unused bits\n",nbits);
+  dprintf("...... start sector %d, number of sectors %d, bitmap size %d\n", start, num_sectors, bitmap_size);
+
+  // Initialize parameters
+  // nbits_addr array to store unused bit segments: starting bit and length of unused bits
+  int remaining_bits=nbits;
+  int nbits_addr[bitmap_size][2];
+  int unused_bit_seg=0;
+  int unused_bit_len=0;
+  int flag_seg_start=0;
+
+  int flag_found=0;
+  int ibyte=0;
+  int isector=0;
+  int ibit=0;
+
+  char buf[SECTOR_SIZE];
+  unsigned char all_ones=255;
+  unsigned char byte_128=128;
+
+  // Loop through bitmap to find the first unused segment of bits that satisfy the criteria 
+  // If not found, list all unused bits
+  while (flag_found==0 && isector<num_sectors)
+  {
+    //dprintf("...... sector number: %d\n", isector);
+
+    // Read one sector of bitmap
+    Disk_Read(start+isector, buf); 
+    
+    // Scan the sector for unused bits
+    ibyte=0;
+    while (flag_found==0 && ibyte<SECTOR_SIZE)
+    {
+       if((unsigned char)buf[ibyte]!=all_ones && isector*SECTOR_SIZE+ibyte<bitmap_size)
+       {
+         ibit=0;
+         while (ibit<8)
+         {
+           if(!!(((unsigned char)buf[ibyte]<< ibit) & byte_128)==0)
+           {
+             // With unused bits
+             if (flag_seg_start==0)
+             {
+               // New unused bit segment
+               flag_seg_start=1;
+               unused_bit_seg++;
+               nbits_addr[unused_bit_seg-1][0]=isector*SECTOR_SIZE*8+ibyte*8+ibit;
+               unused_bit_len++;
+             }
+             else
+             {
+               // Continue with unused bit segment
+               unused_bit_len++;
+             }
+           }
+           else 
+           {
+             if (flag_seg_start==1)
+             {
+               // End of the unused segment
+               flag_seg_start=0;
+               nbits_addr[unused_bit_seg-1][1]=unused_bit_len;
+               dprintf("...... length of holes: %d, %d, %d\n", unused_bit_seg, unused_bit_len, nbits_addr[unused_bit_seg-1][1]);
+               // Check if the length satisfies the required number of bits
+               if (unused_bit_len==nbits)
+               {
+                 // Find the required unused bits
+                 flag_found=1;
+                 for (int i=0; i<nbits; i++)
+                 {
+                   nbits_address[i]=nbits_addr[unused_bit_seg-1][0]+i;
+                 }
+                 dprintf("...... find continous %d unused bits at starting location %d\n",nbits, nbits_addr[unused_bit_seg-1][0]);
+               }
+               unused_bit_len=0;
+             }
+           }
+           ibit++;
+         }  
+       }
+       else if ((unsigned char)buf[ibyte]==all_ones && isector*SECTOR_SIZE+ibyte<bitmap_size)
+       {
+         if (flag_seg_start==1)
+         {
+           // End of the unused segment
+           flag_seg_start=0;
+           nbits_addr[unused_bit_seg-1][1]=unused_bit_len;  
+
+           // Check if the length satisfies the required number of bits
+           if (unused_bit_len==nbits)
+           {
+             // Find the required unused bits             
+             flag_found=1;
+             for (int i=0; i<nbits; i++)
+             {
+               nbits_address[i]=nbits_addr[unused_bit_seg-1][0]+i;
+             }
+             dprintf("...... find continous %d unused bits at starting location %d\n",nbits, nbits_addr[unused_bit_seg-1][0]);
+           }   
+           unused_bit_len=0;        
+         }
+       }
+       ibyte++;
+    }
+    isector++;
+  } 
+
+  // For the last segment with available bits
+  if(flag_seg_start==1)
+  {
+    // End of the unused segment
+    flag_seg_start=0;
+    nbits_addr[unused_bit_seg-1][1]=unused_bit_len;  
+
+    // Check if the length satisfies the required number of bits
+    if (unused_bit_len==nbits)
+    {
+       // Find the required unused bits             
+       flag_found=1;
+       for (int i=0; i<nbits; i++)
+       {
+         nbits_address[i]=nbits_addr[unused_bit_seg-1][0]+i;
+       }
+       dprintf("...... find continous %d unused bits at starting location %d\n",nbits, nbits_addr[unused_bit_seg-1][0]);
+    }   
+    unused_bit_len=0;  
+  }
+
+  for(int ii=0; ii<unused_bit_seg; ii++)
+  {
+    dprintf("...... %d %d %d\n", ii, nbits_addr[ii][0], nbits_addr[ii][1]);
+  }
+
+  int iseg=0;
+  //int ilen=0;
+  if(flag_found==1)
+  {
+    // Find exactly matched nbits
+    dprintf("...... find the exact %d unused bit\n",nbits);
+    return 1;
+  }
+  else 
+  {
+    // Not find the exacted matched nbits
+
+    // Check if the total number of unused bits is enough or not
+    int sum_unused_bits=0;
+    for (int i=0; i<unused_bit_seg; i++)
+    {
+       sum_unused_bits+=nbits_addr[i][1];
+    }
+   
+    if (sum_unused_bits<nbits)
+    {
+      // Not enough nbits
+      dprintf("...... not enough bits: requested %d and have %d unused bits\n", nbits, sum_unused_bits);
+      return -1;
+    }
+    else
+    {
+      // Enough nbits
+
+      // No exact match and check if any segment with enough bits
+      // Assign the first segment with enough bits
+      iseg=0;
+      while (iseg<unused_bit_seg && flag_found==0)
+      {
+        if(nbits_addr[iseg][1]>nbits)
+        {
+          // Find the required unused bits
+          flag_found=1;
+          for (int i=0; i<nbits; i++)
+          {
+            nbits_address[i]=nbits_addr[iseg][0]+i;
+          }
+          dprintf("...... find continous %d unused bits at starting location %d\n",nbits, nbits_addr[iseg][0]);
+          return 1;
+        }
+        iseg++;
+      }
+
+      if (flag_found==0)
+      {
+         // No segments with enough bits
+
+         // Loop through the free bitmap segment array to assign the first unused bits
+         iseg=0;
+         while(flag_found==0 && iseg<unused_bit_seg)
+         {
+           if(nbits_addr[iseg][1]<remaining_bits)
+           {
+             for(int i=0; i<nbits_addr[iseg][1]; i++)
+             {
+               nbits_address[nbits-remaining_bits]=nbits_addr[iseg][0]+i;
+               remaining_bits--;
+             }
+           }
+           else
+           {
+             for(int i=0; i<remaining_bits; i++)
+             {
+               nbits_address[nbits-remaining_bits]=nbits_addr[iseg][0]+i;
+               remaining_bits--;
+             }   
+             flag_found=1;
+           }
+           iseg++;           
+         }
+     
+         dprintf("...... find the %d uncontinuous unused bits\n",nbits);
+         return 1;
+      }      
+    }
+  }
+  return -1;
+}
+
 // return 1 if the file name is illegal; otherwise, return 0; legal
-// characters for a file name include letters (case sensitive),
+// characters for a file name include letters case sensitive),
 // numbers, dots, dashes, and underscores; and a legal file name
 // should not be more than MAX_NAME-1 in length
 static int illegal_filename(char* name)
@@ -798,19 +1183,669 @@ int File_Open(char* file)
 int File_Read(int fd, void* buffer, int size)
 {
   /* YOUR CODE */
-  return -1;
+  dprintf("Read file with file id of %d and size of %d\n", fd, size);
+
+  int actual_read_size=0;
+  
+  // Check if the file is able to open or not
+  if(fd < 0) {
+    dprintf("... cannot open file: input file id is negative\n");
+    osErrno = E_BAD_FD;
+    return -1;
+  }
+  else if (fd>=MAX_OPEN_FILES)
+  {
+    dprintf("... cannot read file: file id is greater than allowed maximum open files\n");
+    osErrno = E_BAD_FD;
+    return -1;
+  }
+  else if (open_files[fd].inode<0)
+  {
+    dprintf("... cannot read file: input file with a negative inode\n");
+    osErrno = E_BAD_FD;
+    return -1;    
+  }
+  else if (open_files[fd].inode>=MAX_FILES)
+  {
+    dprintf("... cannot read file: exceed maximum files\n");
+    osErrno = E_BAD_FD;
+    return -1;    
+  }
+
+  // Find the file inode
+  int inode=open_files[fd].inode;
+  int file_size=open_files[fd].size;
+  int curr_position=open_files[fd].pos;
+
+  // Check if the corresponding inode bitmap is set or not
+  if(is_bitmap_set(INODE_BITMAP_START_SECTOR, INODE_BITMAP_SIZE, inode)<1)
+  {
+    dprintf("... cannot read file: the corresponding inode is not set\n");
+    osErrno = E_BAD_FD;
+    return -1; 
+  }
+
+  // Check if the file pointer is at the end of the file, if yes, return 0 
+  if (curr_position==file_size)
+  {
+   // End of the file
+   dprintf("... the file pointer is at the end of the file\n");
+   actual_read_size=0;
+  }
+  else
+  {
+    if((file_size-curr_position)>=size)
+    {
+       actual_read_size=size;
+    }
+    else 
+    {
+       actual_read_size=file_size-curr_position;
+    }
+    dprintf("... file size=%d, current position=%d, actual read size=%d\n", file_size, curr_position, actual_read_size);
+
+    // Find the inode information from inode table
+    // The sector where the inode is located 
+    int inode_sector = INODE_TABLE_START_SECTOR+inode/INODES_PER_SECTOR;
+    dprintf("... inode is located at disk sector %d\n", inode_sector);
+
+    char inode_buf[SECTOR_SIZE];
+    if(Disk_Read(inode_sector, inode_buf) < 0) 
+    { 
+        dprintf("... cannot load the sector where inode is located\n");
+        osErrno = E_BAD_FD;; 
+        return -1; 
+    }
+
+    // inode entry
+    int offset = inode-(inode_sector-INODE_TABLE_START_SECTOR)*INODES_PER_SECTOR;
+    inode_t* inode_entry = (inode_t*)(inode_buf+offset*sizeof(inode_t));
+    dprintf("... inode entry: inode=%d; size=%d; type=%d \n", inode, inode_entry->size, inode_entry->type);
+
+    // Find the data block that is correpsonding to the current file pointer
+    int idatablock=curr_position/SECTOR_SIZE;
+    int datablock_offset=curr_position-(idatablock*SECTOR_SIZE);
+    char iblock_buf[SECTOR_SIZE];
+    if (Disk_Read(inode_entry->data[idatablock], iblock_buf) < 0)
+    {
+       dprintf("... cannot load the data block: %d\n", idatablock);
+       osErrno = E_BAD_FD;
+       return -1;
+    }      
+    dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock], idatablock);
+    
+    // Export the read bytes to read_buffer
+    if (SECTOR_SIZE-datablock_offset>=actual_read_size)
+    {
+        // Export size is less than the remaining bytes in a sector
+        memcpy(buffer, &iblock_buf[datablock_offset], actual_read_size);
+        dprintf("... load disk sector %d for data block %d and size %d\n", inode_entry->data[idatablock], idatablock, actual_read_size);
+    }
+    else 
+    {
+        memcpy(buffer, &iblock_buf[datablock_offset], SECTOR_SIZE-datablock_offset);  
+
+        // Remaining full sectors with data
+        int remaining_full_sectors=(actual_read_size-SECTOR_SIZE+datablock_offset)/SECTOR_SIZE;
+        dprintf("... remaining full sector number is %d\n",remaining_full_sectors);
+
+        // Full sectors with data
+        for (int i=0; i<remaining_full_sectors; i++)
+        {
+            if (Disk_Read(inode_entry->data[idatablock+1+i], iblock_buf) < 0)
+            {
+               dprintf("... cannot load the data block: %d\n", idatablock+1+i);
+               osErrno = E_BAD_FD;
+               return -1;
+            }      
+            dprintf("... load disk sector %d for data block %d and size %d\n", inode_entry->data[idatablock+1+i], idatablock+1+i, SECTOR_SIZE);
+            memcpy(buffer+(SECTOR_SIZE-datablock_offset+i*SECTOR_SIZE), &iblock_buf[0], SECTOR_SIZE);  
+        }
+
+        // Final partial sector        
+        int remaining_bytes=actual_read_size-remaining_full_sectors*SECTOR_SIZE-(SECTOR_SIZE-datablock_offset);
+        dprintf("... remaining partial sector bytes are %d\n",remaining_bytes);        
+        if (Disk_Read(inode_entry->data[idatablock+1+remaining_full_sectors], iblock_buf) < 0)
+            {
+               dprintf("... cannot load the data block: %d\n",idatablock+1+remaining_full_sectors);
+               osErrno = E_BAD_FD;
+               return -1;
+            }      
+            dprintf("... load disk sector %d for data block %d and size %d\n", inode_entry->data[idatablock+1+remaining_full_sectors], idatablock+1+remaining_full_sectors, remaining_bytes);            
+            memcpy(buffer+SECTOR_SIZE-datablock_offset+remaining_full_sectors*SECTOR_SIZE, &iblock_buf[0], remaining_bytes); 
+    }
+    dprintf("... data read is complete\n");
+
+    // Update file pointer current position
+    open_files[fd].pos=File_Seek(fd, curr_position+actual_read_size);
+    dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+    dprintf("... file pointer location is updated \n"); 
+  }
+
+  dprintf("... actual read size is %d\n", actual_read_size);
+  return actual_read_size; 
 }
 
 int File_Write(int fd, void* buffer, int size)
 {
   /* YOUR CODE */
+  dprintf("Write file with file id of %d and size of %d\n", fd, size);
+
+  // Check if the file is able to open or not
+  if(fd < 0) {
+    dprintf("... cannot open file: input file id is negative\n");
+    osErrno = E_BAD_FD;
+    return -1;
+  }
+  else if (fd>=MAX_OPEN_FILES)
+  {
+    dprintf("... cannot wrie file: file id is greater than allowed maximum open files\n");
+    osErrno = E_BAD_FD;
+    return -1;
+  }
+  else if (open_files[fd].inode<0)
+  {
+    dprintf("... cannot write file: input file with a negative inode\n");
+    osErrno = E_BAD_FD;
+    return -1;    
+  }
+  else if (open_files[fd].inode>=MAX_FILES)
+  {
+    dprintf("... cannot write file: exceed maximum files\n");
+    osErrno = E_BAD_FD;
+    return -1;    
+  }
+  else if (size==0)
+  {
+    dprintf("... file write size is zero\n");
+    return -1;  
+  }
+
+  // Find the file inode
+  int inode=open_files[fd].inode;
+  int file_size=open_files[fd].size;
+  int curr_position=open_files[fd].pos;
+  dprintf("... inode is %d, file_size is %d, and curr_position is %d\n", inode, file_size, curr_position);
+
+  // Check if the corresponding inode bitmap is set or not
+  if(is_bitmap_set(INODE_BITMAP_START_SECTOR, INODE_BITMAP_SIZE, inode)<1)
+  {
+    dprintf("... cannot write file: the corresponding inode is not set for the file\n");
+    osErrno = E_BAD_FD;
+    return -1; 
+  }
+
+  // Check if the file size will exceed maximum file size or not
+  if ((curr_position+size)>(MAX_SECTORS_PER_FILE*SECTOR_SIZE))
+  {
+    dprintf("... write size is too large, exceeding maximum file size\n");
+    dprintf("... required size %d, maximum allowed file size %d\n", (curr_position+size), MAX_SECTORS_PER_FILE*SECTOR_SIZE);
+    osErrno = E_FILE_TOO_BIG;
+    return -1; 
+  }
+
+  // Find the inode information from inode table
+  // The sector where the inode is located 
+  int inode_sector = INODE_TABLE_START_SECTOR+inode/INODES_PER_SECTOR;
+  dprintf("... inode is located at disk sector %d\n", inode_sector);
+
+  char inode_buf[SECTOR_SIZE];
+  if(Disk_Read(inode_sector, inode_buf) < 0) 
+  { 
+      dprintf("... cannot load the sector where inode is located\n");
+      osErrno = E_BAD_FD;; 
+      return -1; 
+  }
+
+  // inode entry
+  int offset = inode-(inode_sector-INODE_TABLE_START_SECTOR)*INODES_PER_SECTOR;
+  inode_t* inode_entry = (inode_t*)(inode_buf+offset*sizeof(inode_t));
+  dprintf("... inode entry: inode=%d; size=%d; type=%d \n", inode, inode_entry->size, inode_entry->type);
+  int inodefile_size=inode_entry->size;
+
+  // Find the data block that is correpsonding to the current file pointer
+  int idatablock=curr_position/SECTOR_SIZE;
+  int datablock_offset=curr_position-(idatablock*SECTOR_SIZE);
+  char iblock_buf[SECTOR_SIZE];
+
+  dprintf("... first data block is located at %d sector and offset is %d\n", idatablock, datablock_offset);
+
+  int remaining_free_bytes;
+  int required_datablock=0; 
+  int datablock_address[MAX_SECTORS_PER_FILE];
+
+  // Check if file size is zero
+  if(inode_entry->size==0)
+  {
+    // It is an empty file and it needs new sectors to write data
+    dprintf("... empty file\n");
+
+    // remaining_free_bytes: remaining free bytes in the current sector
+    remaining_free_bytes=0;
+    required_datablock=(size-remaining_free_bytes+SECTOR_SIZE-1)/SECTOR_SIZE;
+    dprintf("... empty file, require %d new data block and remaining free bytes in the current sector %d\n", required_datablock, remaining_free_bytes);
+
+    // Search available sectors in sector bitmap and obtain the data block address for each extended data block    
+    // bitmap_available_address searches available data block spaces. 
+    // If available, flip them to be 1 for those selected data space
+    // Else, return -1 as error message for not enough data block space
+    if(bitmap_available_address(SECTOR_BITMAP_START_SECTOR, SECTOR_BITMAP_SECTORS, SECTOR_BITMAP_SIZE,required_datablock, datablock_address)<0)
+    {
+      // There is no enough free data block space for the write operation
+      dprintf("... error in finding enough data block space for write\n");
+      osErrno=E_NO_SPACE;
+      return -1;
+    }
+    
+    // With enough data blocks
+    // Set the corresponding bits in sector bitmap to be one
+    if(bitmap_set_nbits(SECTOR_BITMAP_START_SECTOR,SECTOR_BITMAP_SIZE, required_datablock, datablock_address)>=0)
+    {
+       dprintf("...... find the %d unused bits and set them to be one\n",required_datablock);
+    }
+    else
+    {
+       dprintf("...... error in set up the required datablocks\n");
+       return -1;
+    }   
+
+    // Write the data
+    // First write data to full data blocks
+    for (int i=0; i<required_datablock-1; i++)
+    {
+      // New data sector
+      memset(iblock_buf, 0, SECTOR_SIZE);
+      dprintf("... load disk sector %d for data block %d\n", datablock_address[i], idatablock+i);
+
+      memcpy(&iblock_buf[0], buffer+i*SECTOR_SIZE, SECTOR_SIZE);
+
+      // Write to disk for this data block 
+      if (Disk_Write(datablock_address[i], iblock_buf) < 0)
+      {
+        dprintf("... cannot write the data block: %d\n", idatablock);
+        return -1;
+      }      
+      dprintf("... write size %d bytes to disk sector %d for data block %d\n", SECTOR_SIZE,datablock_address[i], idatablock+i);     
+
+      // Update the data block address in inode 
+      inode_entry->data[idatablock+i]=datablock_address[i];       
+    }
+
+    // For the last data block
+    // New data sector
+    memset(iblock_buf, 0, SECTOR_SIZE);
+    dprintf("... load disk sector %d for data block %d\n", datablock_address[required_datablock-1], idatablock+required_datablock-1);
+
+    memcpy(&iblock_buf[0], buffer+((required_datablock-1)*SECTOR_SIZE), (size-((required_datablock-1)*SECTOR_SIZE)));
+        
+    // Write to disk for this data block 
+    if (Disk_Write(datablock_address[required_datablock-1], iblock_buf) < 0)
+    {
+       dprintf("... cannot write the data block: %d\n", idatablock+required_datablock-1);
+       return -1;
+    }      
+    dprintf("... write size %d bytes to disk sector %d for data block %d\n", (size-((required_datablock-1)*SECTOR_SIZE)),datablock_address[required_datablock-1], idatablock+required_datablock-1);     
+
+    // Update the data block address in inode 
+    inode_entry->data[idatablock+required_datablock-1]=datablock_address[required_datablock-1];       
+    inode_entry->size=inodefile_size+size;
+
+    // Update inode information
+    if(Disk_Write(inode_sector, inode_buf) < 0) 
+    { 
+      dprintf("... cannot update inode information for write operation\n");
+      return -1; 
+    }
+
+    // Update file pointer current location
+    open_files[fd].size=inodefile_size+size;
+    open_files[fd].pos=File_Seek(fd, curr_position+size);
+    dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+    dprintf("... file pointer location is updated \n"); 
+ 
+    // return file write size
+    return size; 
+  }
+  else 
+  {
+    // File already has some data
+    dprintf("... non-empty file\n");
+
+    // Give a warning for overwriting the old data
+    if(curr_position<inode_entry->size)
+    {
+      dprintf("... warning: some old data will be overwritten\n");
+    }
+
+    // Check if the current data block has enough space for writing the data
+    remaining_free_bytes=SECTOR_SIZE-datablock_offset;
+    dprintf("... non-empty file, remaining free bytes %d in the current data block\n", remaining_free_bytes);
+
+    // Case when the remaining avaialbe byte is enough for writing new data
+    // These available bytes may already have data. In this case, the data will be overwritten
+    // The available bytes may also be empty
+    if (remaining_free_bytes>=size)
+    {
+      // Current data block has enough space
+      dprintf("... non-empty file and current data block has enough space\n");
+
+      // Current data block
+      if (Disk_Read(inode_entry->data[idatablock], iblock_buf) < 0)
+      {
+         dprintf("... cannot load the data block: %d\n", idatablock);
+         osErrno = E_BAD_FD;
+         return -1;
+      }      
+      dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock], idatablock);
+
+      memcpy(&iblock_buf[offset], buffer, size); 
+    
+      dprintf("... copied %d bytes\n", size);
+      for (int itest=0; itest<5; itest++)
+      {
+        dprintf("... copied byte %c\n", iblock_buf[offset+itest]);
+      }
+    
+      // Write current data block back to the disk
+      if (Disk_Write(inode_entry->data[idatablock], iblock_buf) < 0)
+      {
+        dprintf("... cannot write the data block: %d\n", idatablock);
+        return -1;
+      }      
+      dprintf("... write size %d bytes to disk sector %d for data block %d\n", size,inode_entry->data[idatablock], idatablock);
+  
+      // Update inode information
+      inode_entry->size=inodefile_size+size;
+
+      if(Disk_Write(inode_sector, inode_buf) < 0) 
+      { 
+        dprintf("... cannot update inode information for write operation\n");
+        return -1; 
+      }
+
+      // Update file size and file pointer current location
+      open_files[fd].size=inodefile_size+size;
+      open_files[fd].pos=File_Seek(fd, curr_position+size);
+      dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+      dprintf("... file pointer location is updated \n"); 
+ 
+      // return file write size
+      return size;
+    } 
+    else
+    {
+      // Current data block is not enough for the data
+      dprintf("... non-empty file and current data block does not have enough space\n");
+
+      // Check if the remaining data blocks are enough for the data 
+      int remaining_file_dblock=(inode_entry->size-curr_position-remaining_free_bytes+SECTOR_SIZE-1)/SECTOR_SIZE;
+      dprintf("... file has %d more data blocks for writing the data\n", remaining_file_dblock);      
+
+      if(remaining_free_bytes+remaining_file_dblock*SECTOR_SIZE>=size)
+      {
+        // Remaining data blocks are enough for the input data and no need for requesting new sectors
+        dprintf("... non-empty file and remaining data blocks have enough space\n");
+
+        // Write to the current data block
+        dprintf("... write to current data block\n");
+
+        // Current data block
+        if (Disk_Read(inode_entry->data[idatablock], iblock_buf) < 0)
+        {
+           dprintf("... cannot load the data block: %d\n", idatablock);
+           return -1;
+        }      
+        dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock], idatablock);
+
+        memcpy(&iblock_buf[offset], buffer, remaining_free_bytes);
+
+        // Write current data block back to the disk
+        if (Disk_Write(inode_entry->data[idatablock], iblock_buf) < 0)
+        {
+          dprintf("... cannot write the data block: %d\n", idatablock);
+          return -1;
+        }      
+        dprintf("... write size %d bytes to disk sector %d for data block %d\n", remaining_free_bytes,inode_entry->data[idatablock], idatablock);
+        
+        // Full data blocks
+        int nfull_datablocks=(size-remaining_free_bytes)/SECTOR_SIZE;
+        dprintf("... remaining %d full data blocks that will be written to\n", nfull_datablocks); 
+    
+        for (int i=0; i<nfull_datablocks; i++)
+        {
+          memset(iblock_buf, 0, SECTOR_SIZE);
+          dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+i], idatablock+i+1);
+          
+          // Copy buffer data to datablock
+          memcpy(&iblock_buf[0], buffer+remaining_free_bytes+i*SECTOR_SIZE, SECTOR_SIZE);
+
+          // Write to disk for this data block 
+          if (Disk_Write(inode_entry->data[idatablock+1+i], iblock_buf) < 0)
+          {
+            dprintf("... cannot write the data block: %d\n", idatablock+1+i);
+            return -1;
+          }      
+          dprintf("... write size %d bytes to disk sector %d for data block %d\n", SECTOR_SIZE,inode_entry->data[idatablock+1+i], idatablock+i+1);        
+        }
+
+        // For the last data block
+        memset(iblock_buf, 0, SECTOR_SIZE);    
+        dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);
+
+        memcpy(&iblock_buf[0], buffer+remaining_free_bytes+nfull_datablocks*SECTOR_SIZE, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);
+        
+        // Write to disk for this data block 
+        if(Disk_Write(inode_entry->data[idatablock+1+nfull_datablocks], iblock_buf) < 0)
+        {
+           dprintf("... cannot write the data block: %d\n", idatablock+1+nfull_datablocks);
+           return -1;
+        }      
+        dprintf("... write size %d bytes to sector %d for data block %d\n", (size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE),inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);     
+
+        // Update inode information
+        inode_entry->size=inodefile_size+size;
+        if(Disk_Write(inode_sector, inode_buf) < 0) 
+        { 
+          dprintf("... cannot update inode information for write operation\n");
+          return -1; 
+        }
+
+        // Update file pointer current location
+        open_files[fd].size=inodefile_size+size;
+        open_files[fd].pos=File_Seek(fd, curr_position+size);
+        dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+        dprintf("... file pointer location is updated \n"); 
+ 
+        // return file write size
+        return size;
+      }
+      else 
+      {
+        // Existing data blocks are not enough for writing the data        
+        dprintf("... non-empty file: existing data blocks are not enough for writing the data\n");
+
+        required_datablock=(size-remaining_free_bytes-remaining_file_dblock*SECTOR_SIZE+SECTOR_SIZE-1)/SECTOR_SIZE;
+        dprintf("... file has %d more data blocks for writing the data but still require %d new data block\n", remaining_file_dblock, required_datablock);
+
+        // Search available sectors in sector bitmap and obtain the data block address for each extended data block    
+        // bitmap_available_address searches available data block spaces. 
+        // Else, return -1 as error message for not enough data block space
+        if(bitmap_available_address(SECTOR_BITMAP_START_SECTOR, SECTOR_BITMAP_SECTORS, SECTOR_BITMAP_SIZE,required_datablock, datablock_address)<0)
+        {
+          // There is no enough free data block space for the write operation
+          dprintf("... error in finding enough data block space for write\n");
+          osErrno=E_NO_SPACE;
+          return -1;
+        }  
+
+        // Set the bits to be one for the new sectors
+        if(bitmap_set_nbits(SECTOR_BITMAP_START_SECTOR,SECTOR_BITMAP_SIZE, required_datablock,datablock_address)>=0)
+        {
+          dprintf("...... find the %d unused bits and set them to be one\n",required_datablock);
+        }
+        else
+        {
+          dprintf("...... error in set up the required datablocks\n");
+          return -1;
+        }
+
+        // Write to the current data block
+        dprintf("... write to current data block\n");
+
+        // Current data block
+        if (Disk_Read(inode_entry->data[idatablock], iblock_buf) < 0)
+        {
+           dprintf("... cannot load the data block: %d\n", idatablock);
+           return -1;
+        }      
+        dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock], idatablock);
+
+        memcpy(&iblock_buf[offset], buffer, remaining_free_bytes);
+
+        // Write current data block back to the disk
+        if (Disk_Write(inode_entry->data[idatablock], iblock_buf) < 0)
+        {
+          dprintf("... cannot write the data block: %d\n", idatablock);
+          return -1;
+        }      
+        dprintf("... write size %d bytes to disk sector %d for data block %d\n", remaining_free_bytes,inode_entry->data[idatablock], idatablock);
+        
+        // Existing full data blocks
+        dprintf("... remaining %d full data blocks that will be written to\n", remaining_file_dblock); 
+    
+        for (int i=0; i<remaining_file_dblock; i++)
+        {
+          memset(iblock_buf, 0, SECTOR_SIZE);
+          dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+i], idatablock+i+1);
+          
+          // Copy buffer data to datablock
+          memcpy(&iblock_buf[0], buffer+remaining_free_bytes+i*SECTOR_SIZE, SECTOR_SIZE);
+
+          // Write to disk for this data block 
+          if (Disk_Write(inode_entry->data[idatablock+1+i], iblock_buf) < 0)
+          {
+            dprintf("... cannot write the data block: %d\n", idatablock+1+i);
+            return -1;
+          }      
+          dprintf("... write size %d bytes to disk sector %d for data block %d\n", SECTOR_SIZE,inode_entry->data[idatablock+1+i], idatablock+i+1);        
+        }
+
+        // New full data blocks
+        for (int i=0; i<required_datablock-1; i++)
+        {
+          memset(iblock_buf, 0, SECTOR_SIZE);   
+          dprintf("... load disk sector %d for data block %d\n", datablock_address[i], idatablock+i+1+remaining_file_dblock);
+         
+          memcpy(&iblock_buf[0], buffer+remaining_free_bytes+(remaining_file_dblock+i)*SECTOR_SIZE, SECTOR_SIZE);
+
+          // Write to disk for this data block 
+          if (Disk_Write(datablock_address[i], iblock_buf) < 0)
+          {
+            dprintf("... cannot write the data block: %d\n", idatablock);
+            return -1;
+          }      
+          dprintf("... write size %d bytes to disk sector %d for data block %d\n", SECTOR_SIZE,datablock_address[i], idatablock+i+1+remaining_file_dblock);     
+
+          // Update the data block address in inode 
+          inode_entry->data[idatablock+i+1+remaining_file_dblock]=datablock_address[i];       
+        }  
+
+        // For the last new data block
+        memset(iblock_buf, 0, SECTOR_SIZE);
+        dprintf("... load disk sector %d for data block %d\n", datablock_address[required_datablock-1], idatablock+remaining_file_dblock+required_datablock);
+
+        memcpy(&iblock_buf[0], buffer+remaining_free_bytes+((remaining_file_dblock+required_datablock-1)*SECTOR_SIZE), (size-remaining_free_bytes-((remaining_file_dblock+required_datablock-1)*SECTOR_SIZE)));
+        
+        // Write to disk for the last data block 
+        if (Disk_Write(datablock_address[required_datablock-1], iblock_buf) < 0)
+        {
+           dprintf("... cannot write the data block: %d\n", idatablock+remaining_file_dblock+required_datablock);
+           return -1;
+        }      
+        dprintf("... write size %d bytes to disk sector %d for data block %d\n", (size-remaining_free_bytes-((remaining_file_dblock+required_datablock-1)*SECTOR_SIZE)),datablock_address[required_datablock-1], idatablock+remaining_file_dblock+required_datablock);     
+
+        // Update the data block address in inode 
+        inode_entry->data[idatablock+remaining_file_dblock+required_datablock]=datablock_address[required_datablock-1];       
+        inode_entry->size=inodefile_size+size;
+
+        // Update inode information
+        if(Disk_Write(inode_sector, inode_buf) < 0) 
+        { 
+          dprintf("... cannot update inode information for write operation\n");
+          return -1; 
+        }
+    
+        // Update file pointer current location
+        open_files[fd].size=inodefile_size+size;
+        open_files[fd].pos=File_Seek(fd, curr_position+size);
+        dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+        dprintf("... file pointer location is updated \n"); 
+ 
+        // return file write size
+        return size;
+      }
+    }
+  }
   return -1;
 }
 
+  
+//File_Seek() should update the current location of the file pointer. 
+//The location is given as an offset from the beginning of the file.
+//If offset is larger than the size of the file or negative, return -1 and
+//set osErrno to E_SEEK_OUT_OF_BOUNDS.
+//If the file is not currently open, return -1 and set osErrno to E_BAD_FD. 
+//Upon success, return the new location of the file pointer.
+
 int File_Seek(int fd, int offset)
 {
-  /* YOUR CODE */
-  return 0;
+
+  dprintf("File seek for %d and offset of %d\n", fd, offset);
+
+  
+  // Check if the file is able to open or not
+  if(fd < 0) {
+    dprintf("... cannot open file: input file id is negative\n");
+    osErrno = E_BAD_FD;
+    return -1;
+  }
+  else if (fd>=MAX_OPEN_FILES)
+  {
+    dprintf("... cannot read file: file id is greater than allowed maximum open files\n");
+    osErrno = E_BAD_FD;
+    return -1;
+  }
+  else if (open_files[fd].inode<0)
+  {
+    dprintf("... cannot read file: input file with a negative inode\n");
+    osErrno = E_BAD_FD;
+    return -1;    
+  }
+  else if (open_files[fd].inode>=MAX_FILES)
+  {
+    dprintf("... cannot read file: exceed maximum files\n");
+    osErrno = E_BAD_FD;
+    return -1;    
+  }
+
+  // Reset the current file pointer location
+  int file_size=open_files[fd].size;
+  if (offset<0)
+  {
+     dprintf("... offset %d is negative\n", offset);     
+     osErrno=E_SEEK_OUT_OF_BOUNDS;
+     return -1;
+  }
+  else if (offset>file_size)
+  {
+     dprintf("... offset %d is greater than file size %d\n", offset, file_size);     
+     osErrno=E_SEEK_OUT_OF_BOUNDS;
+     return -1;    
+  }
+
+  open_files[fd].pos=offset;
+  dprintf("... current file pointer is located at %d; file size is %d\n", open_files[fd].pos,open_files[fd].size);
+  return offset;
 }
 
 int File_Close(int fd)
