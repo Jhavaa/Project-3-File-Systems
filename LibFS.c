@@ -296,6 +296,55 @@ static int bitmap_first_unused(int start, int num, int nbits)
 static int bitmap_reset(int start, int num, int ibit)
 {
   /* YOUR CODE */
+
+  dprintf("... bitmap_reset\n");
+  dprintf("...... bitmap_reset: start=%d, num=%d, ibit=%d\n",start, num, ibit);
+
+  char buf[SECTOR_SIZE];
+  // int flag_reset=0;
+  int bit_count = 0;
+  // find the position of the bit that needs to reset
+  int pos = ibit % 8;
+
+  // Loop through all the bitmap sectors
+  for (int i = start; i < num; i++)
+  {
+    // Save the ith sector into buf
+    Disk_Read(i, buf);
+    
+    // Find the i-th bit of the sector
+    for(int j = 0; j < SECTOR_SIZE; j++)
+    {
+      // reach the i-th bit
+      // bit_count increments by 8 everytime we loop through another byte in the sector
+      bit_count += 8;
+
+      // if the bit_count passes our target or equals it, we've found our byte
+      if(bit_count >= ibit)
+      {
+        // check the jth byte in buf
+        unsigned char jth_byte=(unsigned char)buf[j];
+        int bits[8];
+
+        // save bits in array
+        for(int k = 0; k < 8; k++)
+        {
+          bits[k] = (jth_byte << k) & 0x80;
+        }
+
+        // Reset bit in 'pos' position
+        bits[pos] = 0;
+
+        // Write back to disk
+        buf[j]=bits_to_byte(bits);
+        Disk_Write(i, buf);
+
+        // Successful reset
+        return 0;
+      }
+    }
+  }
+  // Unsuccessful reset
   return -1;
 }
 
@@ -696,11 +745,11 @@ static int illegal_filename(char* name)
      2. Make sure file name is less than MAX_NAME - 1 in length.
       - This should be the first check to avoid any wasted time.*/
  
-  char* legal = "abcdefghijklmnopqrstuvwxyz0123456789.-_";
+  char* legal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_";
  
   // Check if the length of name is less than MAX_NAME - 1
   //If yes, enter the if statement. Otherwise, return 1.
-  if(strlen(name) < MAX_NAME - 1){
+  if(strlen(name) <= MAX_NAME - 1 && strlen(name) > 0){
     // Begin checking if characters are legal
     int i;
     for(i = 0; i < strlen(name); i++){
