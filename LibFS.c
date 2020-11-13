@@ -787,12 +787,21 @@ int remove_inode(int type, int parent_inode, int child_inode)
       // if dirent->inode == child_inode, then clear (reclaim) the data.
       if(dirent->inode == child_inode)
       {
+        // memcpy(dirent, dirent + sizeof(dirent_t), (parent->size - offset) * sizeof(dirent_t));
+
         // This for loop is extremely important!!
         // The purpose of the for loop here is to reclaim the data by shifting all
         // all the values to the left by sizeof(dirent_t). We shift by sizeof(dirent_t)
         // because that is how much data we are going to need to fill in the previous
         // address.
-        for(int j = 0; j < parent->size - offset; j++)
+        // parent->size - (offset + 1): this is the limit.
+        //                              - parent->size is the total number of dirents in the parent directory.
+        //                              - (offset + 1) is the position of the file to be removed. We add 1 to
+        //                                the offset because the offset refers to how far the target is from
+        //                                the starting address. If the offset is 4, then the actual position is 5
+        //                                because the starting address holds the 0 position dirent which is counted
+        //                                as 1 in parent->size.
+        for(int j = 0; j < parent->size - (offset + 1); j++)
         {
 
           // memcpy is used here to copy data, from the right of the current dirent
@@ -802,17 +811,15 @@ int remove_inode(int type, int parent_inode, int child_inode)
           //    - dirent is the starting address where the child dirent data is stored
           //    - j is used to shift the current address we are replacing.
           //    - sizeof(dirent_t) is the number of bytes we are shifting by.
-          //  source = (dirent_buffer + offset * sizeof(dirent_t)) + j * sizeof(dirent_t) + sizeof(dirent_t)
-          //    - dirent_buffer is the copied sector from before.
-          //    - offset * sizeof(dirent_t) is the number of shifts needed to reach the child dirent.
-          //    - j * sizeof(dirent_t) + sizeof(dirent_t) is the next dirent after the one we want to replace (destination).
+          //  source = dirent + (j + 1) * sizeof(dirent_t)
+          //    - (j + 1) * sizeof(dirent_t) is the next dirent (source) after the one we want to replace (destination).
           //  number of chars = sizeof(dirent_t)
           //    - sizeof(dirent_t) is the number of bytes that we want to copy from source to destination.
           //      * this is also the number of bytes that makes up one dirent!!
 
-          // strncpy(dirent + (j * sizeof(dirent_t)), (dirent_buffer + offset * sizeof(dirent_t)) + j * sizeof(dirent_t) + sizeof(dirent_t), sizeof(dirent_t));
+          // *We could also just copy ((parent->size - (offset + 1)) * sizeof(dirent_t)) bytes, but doing so has shown to not work in special cases
 
-          memcpy(dirent + (j * sizeof(dirent_t)), (dirent_buffer + offset * sizeof(dirent_t)) + (j * sizeof(dirent_t) + sizeof(dirent_t)), sizeof(dirent_t));
+          memcpy(dirent + (j * sizeof(dirent_t)), dirent + (j + 1) * sizeof(dirent_t), sizeof(dirent_t));
         }
     
       }
@@ -1005,9 +1012,37 @@ int File_Create(char* file)
   return create_file_or_directory(0, file);
 }
 
+/*This function is the opposite of File_Create(). This function should delete the file
+  referenced by file, including removing its name from the directory it is in, and
+  freeing up any data blocks and inodes that the file has been using. If the file does
+  not currently exist, return -1 and set osErrno to E_NO_SUCH_FILE. If the file is
+  currently open, return -1 and set osErrno to E_FILE_IN_USE (and do NOT delete the
+  file). Upon success, return 0.*/
 int File_Unlink(char* file)
 {
   /* YOUR CODE */
+  dprintf("File_Unlink('%s'):\n", file);
+
+  //// Find the inode for the file
+  // child_inode will be the inode of the file specified in the parameter of this function.
+  int type, parent_inode, child_inode;
+
+  // follow_path will return the inode of the file specified by the parameter of this function.
+
+  // file is the path of the file we want to unlink. Here we want the inode of the file.
+  // EX. file = /path/to/file.c
+  //     child path == /path/to/file.c
+  follow_path(file, child_inode, NULL);
+
+  // file is the path of the file we want to unlink, so the parent would be the directory holding
+  // the file. This is found by looking at the previous file name in the path.
+  // EX. file = /path/to/file.c
+  //     parent path == /path/to
+  // char* parent = ;
+  // follow_path(parent, parent_inode, NULL);
+
+  // Update inode-related information
+  remove_inode(type, parent_inode, child_inode);
   return -1;
 }
 
