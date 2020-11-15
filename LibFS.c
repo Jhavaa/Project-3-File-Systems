@@ -1025,24 +1025,49 @@ int File_Unlink(char* file)
 
   //// Find the inode for the file
   // child_inode will be the inode of the file specified in the parameter of this function.
-  int type, parent_inode, child_inode;
+  int parent_inode, child_inode;
 
-  // follow_path will return the inode of the file specified by the parameter of this function.
+  // follow_path will return the parent inode of the file specified by the parameter of this function.
+  // It will also store the child inode in the variable passed throught he second parameter.
 
-  // file is the path of the file we want to unlink. Here we want the inode of the file.
+  // file is the path of the file we want to unlink. Here we want the inode of the file and its parent.
   // EX. file = /path/to/file.c
   //     child path == /path/to/file.c
-  follow_path(file, child_inode, NULL);
-
-  // file is the path of the file we want to unlink, so the parent would be the directory holding
-  // the file. This is found by looking at the previous file name in the path.
-  // EX. file = /path/to/file.c
   //     parent path == /path/to
-  // char* parent = ;
-  // follow_path(parent, parent_inode, NULL);
+  parent_inode = follow_path(file, child_inode, NULL);
 
-  // Update inode-related information
-  remove_inode(type, parent_inode, child_inode);
+  //// Check for errors:
+
+  // "If the file does not currently exist, return -1 and set osErrno to E_NO_SUCH_FILE."
+  if(child_inode == -1)
+  {
+    dprintf("The file does not exist.\n";
+    osErrno = E_NO_SUCH_FILE
+    return -1;
+  }
+
+  // "If the file is currently open, return -1 and set osErrno to E_FILE_IN_USE (and do NOT delete the file)."
+  if(is_file_open(child_inode))
+  {
+    dprintf("The file is currently open.\n";
+    osErrno = E_FILE_IN_USE;
+    return -1;
+  }
+
+  // Checks if follow_path function failed
+  if(parent_inode == -1)
+  {
+    dprintf("Could not follow path (follow_path(%s, child_inode, NULL) failed)\n", file);
+    return -1;
+  }
+
+  //// Update inode-related information
+
+  // This function works under the assumption that the file being unlinked is 100% a file. dir_unlink assumes the opposite.
+  //                        (This is checked in remove_inode, so that's totally fine)
+
+  if(remove_inode(1, parent_inode, child_inode) == 0) return 0;
+
   return -1;
 }
 
