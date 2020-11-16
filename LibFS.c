@@ -771,7 +771,7 @@ int remove_inode(int type, int parent_inode, int child_inode)
 
   // because inodes are unique, we can search for the file referred to
   ///by the child_inode by dirent inode.
-  int group, i, j;
+  int group;
   dirent_t* dirent;
   offset = 0;
   // Loop through all the sectors that could contain the child_inode dirent data.
@@ -1034,22 +1034,22 @@ int File_Unlink(char* file)
   // EX. file = /path/to/file.c
   //     child path == /path/to/file.c
   //     parent path == /path/to
-  parent_inode = follow_path(file, child_inode, NULL);
+  parent_inode = follow_path(file, &child_inode, NULL);
 
   //// Check for errors:
 
   // "If the file does not currently exist, return -1 and set osErrno to E_NO_SUCH_FILE."
   if(child_inode == -1)
   {
-    dprintf("The file does not exist.\n";
-    osErrno = E_NO_SUCH_FILE
+    dprintf("The file does not exist.\n");
+    osErrno = E_NO_SUCH_FILE;
     return -1;
   }
 
   // "If the file is currently open, return -1 and set osErrno to E_FILE_IN_USE (and do NOT delete the file)."
   if(is_file_open(child_inode))
   {
-    dprintf("The file is currently open.\n";
+    dprintf("The file is currently open.\n");
     osErrno = E_FILE_IN_USE;
     return -1;
   }

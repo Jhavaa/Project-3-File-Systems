@@ -4,6 +4,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#define dprintf printf
+
 #define SECTOR_SIZE 512
 #define TOTAL_SECTORS 10000 
 
@@ -99,132 +101,107 @@ int osErrno;
 // the name of the disk backstore file (with which the file system is booted)
 static char bs_filename[1024];
 
+// Function to convert 8 bits to a byte 
+// based on the corresponding numerical value
 unsigned char bits_to_byte(int *bits)
 {
-   unsigned char char_byte;   
-   // The powers of 2 is stored in the variable power_value
+   unsigned char char_byte;
    int power_value=1; 
-   // The variable char_byte is used for the converted byte value
    char_byte=0;
    for (int i=0;i<8;i++)
    {
-     //dprintf("%d\n",bits[i]);
+     //printf("%d\n",bits[i]);
      if (i>0) {     
      	power_value*=2;
      }
      char_byte+=bits[7-i]*power_value;
    }
    // Testing byte 
-   printf("...Bits to byte: %d\n", char_byte);
-   return char_byte;
+    printf("%d\n", char_byte);
+   // dprintf("%d\n", char_byte);
+    return char_byte;
 }
 
-
-// set the first unused bit from a bitmap of 'nbits' bits (flip the
-// first zero appeared in the bitmap to one) and return its location;
-// return -1 if the bitmap is already full (no more zeros)
-static int bitmap_first_unused(int start, int num, int nbits)
+// initialize a bitmap with 'num' sectors starting from 'start'
+// sector; all bits should be set to zero except that the first
+// 'nbits' number of bits are set to one
+static void bitmap_init(int start, int num, int nbits)
 {
   /* YOUR CODE */
-
-  printf("...bitmap_first_unused: start=%d, num=%d, nbits=%d\n",start, num, nbits);
-
   char buf[SECTOR_SIZE];
   unsigned char all_ones=255;
-  // ending_byte is used to determine the ending location of bitmap
-  // a bitmap may not occupy the whole sector
-  int ending_byte=SECTOR_SIZE;
-  int flag_flip=0;
-  int ibit=-1;
+  unsigned char all_zeros=0;
+  int start_sector;
 
-  for (int i=0; i<SECTOR_SIZE; i++)
-  {
-     buf[i]=all_ones;
-  }
- 
- // Loop through all the bitmap sectors
-  for (int i=0; i<num; i++)
-  {
-    //Disk_Read(start+i, buf);
-    if (i==1) 
-    {
-       buf[230]=127;
-    }
-    // Find the ending location of bitmap in each sector
-    if (i<num-1)
-    {
-      ending_byte=SECTOR_SIZE;
-      printf("...Ending byte is %d\n",ending_byte);
-    }
-    else
-    {
-      ending_byte=nbits-i*SECTOR_SIZE;
-      printf("...Ending byte is %d\n",ending_byte);
-    }
-    for (int j=0; j<ending_byte; j++)
-    {
-       //printf("i=%d, j=%d\n",i, j);
-       //if (i==1 && j==230)
-       //{
-       //for (int m=0;m<8;m++)
-       //{
-       //   printf("%d", !!((buf[j] << m) & 0x80));
-       //  }
-       //   printf("test1%d\n",j);
-       //}
-       unsigned char unfull_byte=(unsigned char)buf[j];
-       if(unfull_byte!=all_ones)
-       {
-         // Not full byte
-         //unsigned char unfull_byte=buf[j];
-         for (int m=0;m<8;m++)
-         {
-             printf("%d", !!((unfull_byte<< m) & 0x80));
-         }
-          printf("\n");
+  // Find the number of sectors and bytes with all the bit values of 1
+  int num_full_sectors=(nbits/8)/SECTOR_SIZE;
+  printf("full sector number: %d\n",num_full_sectors);
+  if(num_full_sectors>num) 
+       printf("Error in writing initialized bitmap to disk");
+       //dprintf("Error in writing initialized bitmap to disk");
 
-         int bits[8];
-         for (int k=0; k<8; k++)
-         {
-            bits[k]=!!((unfull_byte<< k) & 0x80);            
-            if(bits[k]==0 && flag_flip==0)
-            {
-               // Flip the bit
-               bits[k]=1; 
-               flag_flip=1; 
-               // Bit location
-               ibit=i*SECTOR_SIZE*8+j*8+k;
-               printf("...First unused bit: %d\n", ibit);       
-            }
-            //printf("%d",bits[k]);
-            //printf("\n");
-         }
-         if(flag_flip==1)
-         {
-           buf[j]=bits_to_byte(bits);
-           printf("...Byte after flip:");
-           for (int m=0;m<8;m++)
-           {
-             printf("%d", !!((((unsigned char)buf[j])<< m) & 0x80));
-           }
-           printf("\n");           
-         }
-       }
-     if (flag_flip==1)
-     {         
-       break;
-     }
-    }
-    if(flag_flip==1)
-    {
-       // Write the flipped sector back to disk
-       //Disk_Write(start+i, buf);
-       printf("flipped\n");
-       return ibit;
-    }
+  //for (int i=0; i<SECTOR_SIZE;i++)
+  //{
+  //   buf[i]=all_ones;
+  //}
+  memset(buf, all_ones, SECTOR_SIZE);
+  for (int j=0; j<num_full_sectors; j++)
+  {
+     printf("%d\n",j);
+     //if(Disk_Write(start+j, buf) < 0) return -1;
   }
-  return -1;
+
+  // For the sector with partial full bytes
+  // Bytes with all ones
+  start_sector=start+num_full_sectors;
+  int num_full_bytes=(nbits-num_full_sectors*SECTOR_SIZE*8)/8;
+  for (int i=0; i<num_full_bytes;i++)
+  {
+      buf[i]=all_ones;
+  }
+  printf("Number of full bytes: %d\n",num_full_bytes);
+  // The byte that is between zero and all ones
+  int remaining_bits=nbits-num_full_sectors*SECTOR_SIZE*8-num_full_bytes*8;
+  int bits_array[8];
+  for (int i=0; i<remaining_bits;i++)
+  {
+    bits_array[i]=1;
+  }
+  for (int i=remaining_bits; i<8;i++)
+  {
+    bits_array[i]=0;
+  }
+  buf[num_full_bytes]=bits_to_byte(bits_array);
+  printf("Remaining bits with 1:%d, Partial byte:%c\n",remaining_bits, buf[num_full_bytes]);
+   for (int i=0;i<8;i++)
+    {
+       printf("%d", !!((buf[num_full_bytes] << i) & 0x80));
+    }
+    printf("\n");
+
+  // Bytes with all zeors
+  for (int j=num_full_bytes+1;j<SECTOR_SIZE;j++)
+  {
+    buf[j]=all_zeros;
+  }
+  printf("Number of bytes with zeros:%d\n",num_full_bytes+1);
+  //if(Disk_Write(start_sector, buf) < 0) return -1;
+
+  // Sectors with all zeros
+  start_sector=start_sector+1;
+  //for (int i=0; i<SECTOR_SIZE;i++)
+  //{
+  //    buf[i]=0;
+  //}
+  memset(buf, all_zeros, SECTOR_SIZE);
+  for (int j=0; j<num-num_full_sectors-1; j++)
+  {
+     //if(Disk_Write(start_sector+j, buf) < 0) return -1;
+  }
+  printf("Number of sectors with zeros:%d\n",num-num_full_sectors-1);
+  //dprintf("... update bitmap sector is done\n");
 }
+
 
 // reset the i-th bit of a bitmap with 'num' sectors starting from
 // 'start' sector; return 0 if successful, -1 otherwise
@@ -285,17 +262,18 @@ static int bitmap_reset(int start, int num, int ibit)
 
 int main()
 {
-   int child_inode=0;
-   child_inode= bitmap_first_unused(INODE_BITMAP_START_SECTOR, INODE_BITMAP_SECTORS, INODE_BITMAP_SIZE);
-   printf("... formatted inode bitmap (start=%d, num=%d, size=%d)\n",
-	     (int)INODE_BITMAP_START_SECTOR, (int)INODE_BITMAP_SECTORS, (int)INODE_BITMAP_SIZE);
-   printf("ibit: %d\n", child_inode);   
-
-   int newsec = 0;
-   newsec=bitmap_first_unused(SECTOR_BITMAP_START_SECTOR, SECTOR_BITMAP_SECTORS, SECTOR_BITMAP_SIZE);
-   printf("... formatted sector bitmap (start=%d, num=%d, size=%d)\n",
-	     (int)SECTOR_BITMAP_START_SECTOR, (int)SECTOR_BITMAP_SECTORS, (int)SECTOR_BITMAP_SIZE);
-   printf("ibit: %d\n", newsec);   
+   int nbits=20;
+   bitmap_init(INODE_BITMAP_START_SECTOR, INODE_BITMAP_SECTORS, 1);
+      printf("... formatted inode bitmap (start=%d, num=%d)\n",
+	     (int)INODE_BITMAP_START_SECTOR, (int)INODE_BITMAP_SECTORS);
+      
+      // format sector bitmap (reserve the first few sectors to
+      // superblock, inode bitmap, sector bitmap, and inode table)
+      bitmap_init(SECTOR_BITMAP_START_SECTOR, SECTOR_BITMAP_SECTORS,
+		  DATABLOCK_START_SECTOR);
+     printf("... formatted sector bitmap (start=%d, num=%d,datablockstart=%d)\n",
+	     (int)SECTOR_BITMAP_START_SECTOR, (int)SECTOR_BITMAP_SECTORS, (int)DATABLOCK_START_SECTOR);
+   //printf("%d,%d\n", (nbits/8),(nbits/8/SECTOR_SIZE));
    return 0;
 }
 
