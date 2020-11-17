@@ -10,7 +10,8 @@ SRCS   = main.c \
 	simple-test.c \
 	slow-ls.c slow-mkdir.c slow-rmdir.c \
 	slow-touch.c slow-rm.c \
-	slow-cat.c slow-import.c slow-export.c
+	slow-cat.c slow-import.c slow-export.c \
+	$(wildcard testing/*.c) # This one will ensure all *.c files are compiled under testing dir
 
 OBJS   = $(SRCS:.c=.o)
 TARGETS = $(SRCS:.c=.exe)
@@ -18,7 +19,8 @@ TARGETS = $(SRCS:.c=.exe)
 all: $(TARGETS)
 
 clean:
-	rm -f $(TARGETS) $(OBJS) *~
+	rm -f $(TARGETS) $(OBJS) *.so *~
+	rm -f ./*.fs
 
 reset:	clean
 	make -f Makefile.LibDisk clean
