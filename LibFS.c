@@ -1629,15 +1629,15 @@ int File_Read(int fd, void* buffer, int size)
                return -1;
             }      
             dprintf("... load disk sector %d for data block %d and size %d\n", inode_entry->data[idatablock+1+i], idatablock+1+i, SECTOR_SIZE);
-            memcpy(buffer+(SECTOR_SIZE-datablock_offset+i*SECTOR_SIZE), &iblock_buf[0], SECTOR_SIZE);
-
+            memcpy(buffer+(SECTOR_SIZE-datablock_offset+i*SECTOR_SIZE), &iblock_buf[0], SECTOR_SIZE);  
+        
             // Test copied data
             dprintf("... offset %d\n", datablock_offset);
             for(int itest=0; itest<SECTOR_SIZE; itest++)
             {
               dprintf("%c", iblock_buf[itest]);
             }
-             dprintf("\n");  
+             dprintf("\n");
         }
 
         // Final partial sector        
@@ -1759,16 +1759,23 @@ int File_Write(int fd, void* buffer, int size)
   int required_datablock=0; 
   int datablock_address[MAX_SECTORS_PER_FILE];
 
-  // Check if file size is zero
-  if(inode_entry->size==0)
+  // Check if file size is zero or the existing data blocks are already full
+  if(inode_entry->size==0 || inode_entry->data[idatablock]==0)
   {
     // It is an empty file and it needs new sectors to write data
-    dprintf("... empty file\n");
+    if(inode_entry->size==0)
+    {
+      dprintf("... empty file\n");
+    }
+    else
+    {
+      dprintf("... non-empty file with data blocks that are already full\n");
+    }
 
     // remaining_free_bytes: remaining free bytes in the current sector
     remaining_free_bytes=0;
     required_datablock=(size-remaining_free_bytes+SECTOR_SIZE-1)/SECTOR_SIZE;
-    dprintf("... empty file, require %d new data block and remaining free bytes in the current sector %d\n", required_datablock, remaining_free_bytes);
+    dprintf("... requires %d new data block and remaining free bytes in the current sector %d\n", required_datablock, remaining_free_bytes);
 
     // Search available sectors in sector bitmap and obtain the data block address for each extended data block    
     // bitmap_available_address searches available data block spaces. 
@@ -1804,6 +1811,13 @@ int File_Write(int fd, void* buffer, int size)
 
       memcpy(&iblock_buf[0], buffer+i*SECTOR_SIZE, SECTOR_SIZE);
 
+      // Test copied data
+      for(int itest=0; itest<SECTOR_SIZE; itest++)
+      {
+        dprintf("%c", iblock_buf[itest]);
+      }
+      dprintf("\n");   
+
       // Write to disk for this data block 
       if (Disk_Write(datablock_address[i], iblock_buf) < 0)
       {
@@ -1818,11 +1832,19 @@ int File_Write(int fd, void* buffer, int size)
 
     // For the last data block
     // New data sector
-    memset(iblock_buf, 0, SECTOR_SIZE);
+    //memset(iblock_buf, 0, SECTOR_SIZE);
+    memset(iblock_buf, 0, (size-((required_datablock-1)*SECTOR_SIZE)));
     dprintf("... load disk sector %d for data block %d\n", datablock_address[required_datablock-1], idatablock+required_datablock-1);
 
     memcpy(&iblock_buf[0], buffer+((required_datablock-1)*SECTOR_SIZE), (size-((required_datablock-1)*SECTOR_SIZE)));
         
+    // Test copied data
+    for(int itest=0; itest<(size-((required_datablock-1)*SECTOR_SIZE)); itest++)
+    {
+      dprintf("%c", iblock_buf[itest]);
+    }
+    dprintf("\n");   
+
     // Write to disk for this data block 
     if (Disk_Write(datablock_address[required_datablock-1], iblock_buf) < 0)
     {
@@ -1883,12 +1905,12 @@ int File_Write(int fd, void* buffer, int size)
       }      
       dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock], idatablock);
 
-      memcpy(&iblock_buf[offset], buffer, size); 
+      memcpy(&iblock_buf[datablock_offset], buffer, size); 
     
       dprintf("... copied %d bytes\n", size);
       for (int itest=0; itest<5; itest++)
       {
-        dprintf("... copied byte %c\n", iblock_buf[offset+itest]);
+        dprintf("... copied byte %c\n", iblock_buf[datablock_offset+itest]);
       }
     
       // Write current data block back to the disk
@@ -1900,18 +1922,24 @@ int File_Write(int fd, void* buffer, int size)
       dprintf("... write size %d bytes to disk sector %d for data block %d\n", size,inode_entry->data[idatablock], idatablock);
   
       // Update inode information
-      inode_entry->size=inodefile_size+size;
+      if (curr_position+size>inodefile_size)
+      {
+        inode_entry->size=curr_position+size;
+        if(Disk_Write(inode_sector, inode_buf) < 0) 
+        { 
+          dprintf("... cannot update inode information for write operation\n");
+          return -1; 
+        }
 
-      if(Disk_Write(inode_sector, inode_buf) < 0) 
-      { 
-        dprintf("... cannot update inode information for write operation\n");
-        return -1; 
+        // Update file size
+        open_files[fd].size=curr_position+size;
       }
+      // else: nothing needs to be changed
 
-      // Update file size and file pointer current location
-      open_files[fd].size=inodefile_size+size;
+      // Update file pointer current location
       open_files[fd].pos=File_Seek(fd, curr_position+size);
       dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+      dprintf("... new file size is %d\n", open_files[fd].size);
       dprintf("... file pointer location is updated \n"); 
  
       // return file write size
@@ -1942,7 +1970,15 @@ int File_Write(int fd, void* buffer, int size)
         }      
         dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock], idatablock);
 
-        memcpy(&iblock_buf[offset], buffer, remaining_free_bytes);
+        memcpy(&iblock_buf[datablock_offset], buffer, remaining_free_bytes);
+
+        // Test copied data
+        dprintf("... offset %d\n", datablock_offset);
+        for(int itest=datablock_offset; itest<SECTOR_SIZE; itest++)
+        {
+          dprintf("%c", iblock_buf[itest]);
+        }
+        dprintf("\n");         
 
         // Write current data block back to the disk
         if (Disk_Write(inode_entry->data[idatablock], iblock_buf) < 0)
@@ -1973,12 +2009,47 @@ int File_Write(int fd, void* buffer, int size)
           dprintf("... write size %d bytes to disk sector %d for data block %d\n", SECTOR_SIZE,inode_entry->data[idatablock+1+i], idatablock+i+1);        
         }
 
-        // For the last data block
-        memset(iblock_buf, 0, SECTOR_SIZE);    
+        // For the last data block        
+        if (Disk_Read(inode_entry->data[idatablock+1+nfull_datablocks], iblock_buf) < 0)
+        {
+           dprintf("... cannot load the data block: %d\n", idatablock);
+           return -1;
+        }      
         dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);
 
-        memcpy(&iblock_buf[0], buffer+remaining_free_bytes+nfull_datablocks*SECTOR_SIZE, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);
+        //dprintf("... existing data block data:\n");
+        //for(int itest=0; itest<SECTOR_SIZE; itest++)
+        //{
+        //  dprintf("%c", iblock_buf[itest]);
+        //}
+        //dprintf("\n"); 
+
+        //memset(iblock_buf, 0, SECTOR_SIZE);  
+        memset(iblock_buf, 0, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);   
+        dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);
         
+        //char temp_buf[SECTOR_SIZE];
+        //memcpy(temp_buf, iblock_buf,SECTOR_SIZE);
+
+        memcpy(&iblock_buf[0], buffer+remaining_free_bytes+nfull_datablocks*SECTOR_SIZE, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);
+
+        //memcpy(&iblock_buf[size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE], temp_buf+size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE, SECTOR_SIZE-(size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE));
+        
+        // Test copied data
+        dprintf("... replaced data:\n");
+        for(int itest=0; itest<size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE; itest++)
+        {
+          dprintf("%c", iblock_buf[itest]);
+        }
+        dprintf("\n"); 
+
+        dprintf("... remaining data:\n");
+        for(int itest=size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE; itest<SECTOR_SIZE; itest++)
+        {
+          dprintf("%c", iblock_buf[itest]);
+        }
+        dprintf("\n"); 
+
         // Write to disk for this data block 
         if(Disk_Write(inode_entry->data[idatablock+1+nfull_datablocks], iblock_buf) < 0)
         {
@@ -1988,19 +2059,26 @@ int File_Write(int fd, void* buffer, int size)
         dprintf("... write size %d bytes to sector %d for data block %d\n", (size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE),inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);     
 
         // Update inode information
-        inode_entry->size=inodefile_size+size;
-        if(Disk_Write(inode_sector, inode_buf) < 0) 
-        { 
-          dprintf("... cannot update inode information for write operation\n");
-          return -1; 
+        if (curr_position+size>inodefile_size)
+        {
+          inode_entry->size=curr_position+size;
+          if(Disk_Write(inode_sector, inode_buf) < 0) 
+          { 
+            dprintf("... cannot update inode information for write operation\n");
+            return -1; 
+          }
+
+          // Update file size
+          open_files[fd].size=curr_position+size;
         }
+        // else: nothing needs to be changed
 
         // Update file pointer current location
-        open_files[fd].size=inodefile_size+size;
         open_files[fd].pos=File_Seek(fd, curr_position+size);
         dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+        dprintf("... new file size is %d\n", open_files[fd].size);
         dprintf("... file pointer location is updated \n"); 
- 
+
         // return file write size
         return size;
       }
@@ -2045,7 +2123,7 @@ int File_Write(int fd, void* buffer, int size)
         }      
         dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock], idatablock);
 
-        memcpy(&iblock_buf[offset], buffer, remaining_free_bytes);
+        memcpy(&iblock_buf[datablock_offset], buffer, remaining_free_bytes);
 
         // Write current data block back to the disk
         if (Disk_Write(inode_entry->data[idatablock], iblock_buf) < 0)
@@ -2096,7 +2174,8 @@ int File_Write(int fd, void* buffer, int size)
         }  
 
         // For the last new data block
-        memset(iblock_buf, 0, SECTOR_SIZE);
+        //memset(iblock_buf, 0, SECTOR_SIZE);
+        memset(iblock_buf, 0, (size-remaining_free_bytes-((remaining_file_dblock+required_datablock-1)*SECTOR_SIZE)));
         dprintf("... load disk sector %d for data block %d\n", datablock_address[required_datablock-1], idatablock+remaining_file_dblock+required_datablock);
 
         memcpy(&iblock_buf[0], buffer+remaining_free_bytes+((remaining_file_dblock+required_datablock-1)*SECTOR_SIZE), (size-remaining_free_bytes-((remaining_file_dblock+required_datablock-1)*SECTOR_SIZE)));
@@ -2110,22 +2189,30 @@ int File_Write(int fd, void* buffer, int size)
         dprintf("... write size %d bytes to disk sector %d for data block %d\n", (size-remaining_free_bytes-((remaining_file_dblock+required_datablock-1)*SECTOR_SIZE)),datablock_address[required_datablock-1], idatablock+remaining_file_dblock+required_datablock);     
 
         // Update the data block address in inode 
-        inode_entry->data[idatablock+remaining_file_dblock+required_datablock]=datablock_address[required_datablock-1];       
-        inode_entry->size=inodefile_size+size;
+        inode_entry->data[idatablock+remaining_file_dblock+required_datablock]=datablock_address[required_datablock-1];   
 
-        // Update inode information
+        // Update inode size
+        if (curr_position+size>inodefile_size)
+        {
+          inode_entry->size=curr_position+size;
+
+          // Update file size
+          open_files[fd].size=curr_position+size;
+        }
+        // else: no need to change inode size
+
         if(Disk_Write(inode_sector, inode_buf) < 0) 
         { 
-          dprintf("... cannot update inode information for write operation\n");
-          return -1; 
+            dprintf("... cannot update inode information for write operation\n");
+            return -1; 
         }
-    
+
         // Update file pointer current location
-        open_files[fd].size=inodefile_size+size;
         open_files[fd].pos=File_Seek(fd, curr_position+size);
         dprintf("... new file pointer location is %d\n", open_files[fd].pos);
+        dprintf("... new file size is %d\n", open_files[fd].size);
         dprintf("... file pointer location is updated \n"); 
- 
+
         // return file write size
         return size;
       }
@@ -2224,134 +2311,15 @@ int Dir_Unlink(char* path)
   return -1;
 }
 
-/**
- * Dir_Size() returns the number of bytes in the directory referred to by path. 
- * This function should be used to find the size of the directory before calling Dir_Read() (described below) 
- * to find the contents of the directory.
- *
- * The size actually is a product of the number of file/dir existed under the given path. 
- * To be specific, size = 20 bytes * count_of_entry.
- *
- * if path is not found, -1 is returned
- */
 int Dir_Size(char* path)
 {
-  // Find the child inode 
-  if (path == NULL) 
-  {
-      // invalid path
-      printf("Invalid empty path\n");
-      return -1;
-  }
-
-  // child inode is the leaf node within the path
-  // For example, path "/a/b/c/" will have dir c as the child inode
-  int child_inode;
-  char last_fname[MAX_NAME];
-  if (follow_path(path, &child_inode, last_fname) == -1 || child_inode == -1) 
-  {
-      // path not found
-      return -1; 
-  }
-
-  // get the disk sector containing the child inode
-  char inode_buffer[SECTOR_SIZE];
-  int inode_sector = INODE_TABLE_START_SECTOR + child_inode/INODES_PER_SECTOR;
-  if(Disk_Read(inode_sector, inode_buffer) < 0) return -1;
-  dprintf("... load inode table for child inode %d from disk sector %d\n",
-                 child_inode, inode_sector);
- 
-  // get child inode
-  int inode_start_entry = (inode_sector - INODE_TABLE_START_SECTOR) * INODES_PER_SECTOR;
-  int offset = child_inode - inode_start_entry;
-  assert(0 <= offset && offset < INODES_PER_SECTOR);
-  inode_t* child = (inode_t*)(inode_buffer + offset * sizeof(inode_t));
-  dprintf("... get child inode %d (size=%d, type=%d)\n", child_inode, child->size, child->type);
-
-  return child->size * FILE_OR_DIR_ENTRY_SIZE;
+  /* YOUR CODE */
+  return 0;
 }
 
-/**
- * This method reads the dir specified by the path. It returns the count of the entires (e.g. file or dir). 
- * Each entry will occupy 20 bytes in the buffer array. The first 16 bytes consist of the name of the entry,
- * and last 4 bytes are the inode number. 
- */
 int Dir_Read(char* path, void* buffer, int size)
 {
-  if (path == NULL) {
-    // invalid path
-    return -1;
-  }
-
-  dprintf("... read dir %s with buffer size %d", path, size);
-
-  int dir_size = Dir_Size(path);
-
-  if (dir_size <= 0) {
-    // path not found or empty dir
-    printf("path not found or empty dir: %s", path);
-    return dir_size;
-  }
-
-  if (size < dir_size) {
-    // buffer isn't big enough to hold the content
-    osErrno = E_BUFFER_TOO_SMALL;
-    return -1;
-  }
-
-  int child_inode;
-  char last_fname[MAX_NAME];
-  if (follow_path(path, &child_inode, last_fname) == -1 || child_inode == -1) 
-  {
-      return -1; // path not found but it should not happen since we already called Dir_Size();
-  }
-
-  // get the disk sector containing the child inode
-  char inode_buffer[SECTOR_SIZE];
-  int inode_sector = INODE_TABLE_START_SECTOR + child_inode/INODES_PER_SECTOR;
-  if(Disk_Read(inode_sector, inode_buffer) < 0) return -1;
-  dprintf("... load inode table for child inode %d from disk sector %d\n",
-                 child_inode, inode_sector);
-
-  // get child inode
-  int inode_start_entry = (inode_sector - INODE_TABLE_START_SECTOR) * INODES_PER_SECTOR;
-  int offset = child_inode - inode_start_entry;
-  assert(0 <= offset && offset < INODES_PER_SECTOR);
-  inode_t* child = (inode_t*)(inode_buffer + offset * sizeof(inode_t));
-  dprintf("... get child inode %d (size=%d, type=%d)\n", child_inode, child->size, child->type);
-
-  int groups = dir_size / FILE_OR_DIR_ENTRY_SIZE / DIRENTS_PER_SECTOR;
-  int total_entry_size = dir_size / FILE_OR_DIR_ENTRY_SIZE;
-  char dirent_buffer[SECTOR_SIZE];
-  
-  // traverse each dirent group
-  // read dirent from sector
-  if(Disk_Read(child->data[0], dirent_buffer) < 0) return -1;
-  int dirent_offset = 0;
-  int sec_idx = 0;
-  while (sec_idx * DIRENTS_PER_SECTOR + dirent_offset < total_entry_size) {
-      dirent_t* dirent = (dirent_t*)(dirent_buffer + dirent_offset * sizeof(dirent_t));
-      dprintf("found file name: %-15s with inode %-d\n", dirent, dirent->inode);
-
-      strncpy(buffer, dirent, MAX_NAME);
-      memcpy(buffer + MAX_NAME, &(dirent->inode), sizeof(int));
-
-      dirent_offset++;        
-      buffer += FILE_OR_DIR_ENTRY_SIZE;
-
-      if (dirent_offset == DIRENTS_PER_SECTOR) {
-          dirent_offset = 0;
-          sec_idx++;
-
-          memset(dirent_buffer, 0, SECTOR_SIZE);
-          if(Disk_Read(child->data[sec_idx], dirent_buffer) < 0) return -1;
-
-        dprintf("...... move to next dirent group %d\n", sec_idx);
-      }
-  }
-
-  dprintf("... total entry size in dir '%s' is: %d\n", path, total_entry_size);
-  return total_entry_size;
+  /* YOUR CODE */
+  return -1;
 }
-
 
