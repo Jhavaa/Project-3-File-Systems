@@ -1600,6 +1600,15 @@ int File_Read(int fd, void* buffer, int size)
     {
         // Export size is less than the remaining bytes in a sector
         memcpy(buffer, &iblock_buf[datablock_offset], actual_read_size);
+
+        // Test copied data
+        dprintf("... offset %d\n", datablock_offset);
+        for(int itest=0; itest<actual_read_size; itest++)
+        {
+          printf("%c", iblock_buf[itest+datablock_offset]);
+        }
+        printf("\n");  
+
         dprintf("... load disk sector %d for data block %d and size %d\n", inode_entry->data[idatablock], idatablock, actual_read_size);
     }
     else 
@@ -1620,7 +1629,15 @@ int File_Read(int fd, void* buffer, int size)
                return -1;
             }      
             dprintf("... load disk sector %d for data block %d and size %d\n", inode_entry->data[idatablock+1+i], idatablock+1+i, SECTOR_SIZE);
-            memcpy(buffer+(SECTOR_SIZE-datablock_offset+i*SECTOR_SIZE), &iblock_buf[0], SECTOR_SIZE);  
+            memcpy(buffer+(SECTOR_SIZE-datablock_offset+i*SECTOR_SIZE), &iblock_buf[0], SECTOR_SIZE);
+
+            // Test copied data
+            dprintf("... offset %d\n", datablock_offset);
+            for(int itest=0; itest<SECTOR_SIZE; itest++)
+            {
+              dprintf("%c", iblock_buf[itest]);
+            }
+             dprintf("\n");  
         }
 
         // Final partial sector        
@@ -1634,6 +1651,13 @@ int File_Read(int fd, void* buffer, int size)
             }      
             dprintf("... load disk sector %d for data block %d and size %d\n", inode_entry->data[idatablock+1+remaining_full_sectors], idatablock+1+remaining_full_sectors, remaining_bytes);            
             memcpy(buffer+SECTOR_SIZE-datablock_offset+remaining_full_sectors*SECTOR_SIZE, &iblock_buf[0], remaining_bytes); 
+
+            // Test copied data
+            for(int itest=0; itest<remaining_bytes; itest++)
+            {
+              dprintf("%c", iblock_buf[itest]);
+            }
+             dprintf("\n");
     }
     dprintf("... data read is complete\n");
 
