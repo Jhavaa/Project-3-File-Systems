@@ -2310,12 +2310,57 @@ int Dir_Create(char* path)
   return create_file_or_directory(1, path);
 }
 
+// Dir_Unlink() removes a directory referred to by path, freeing up its inode and data blocks, and removing its entry from the parent directory. 
+// Upon success, return 0. If the directory does not currently exist, return -1 and set osErrno to E_NO_SUCH_DIR. 
+// Dir_Unlink() should only be successful if there are no files within the directory. 
+// If there are still files within the directory, return -1 and set osErrno to E_DIR_NOT_EMPTY. 
+// It’s not allowed to remove the root directory ("/"), in which case the function should return -1 and set osErrno to E_ROOT_DIR.
 int Dir_Unlink(char* path)
 {
-  /* YOUR CODE */
-  return -1;
-}
+  if (path == NULL) {
+      return -1; // invalid input
+  }
 
+  int child_inode;
+  char last_fname[MAX_NAME];
+  int parent_inode = follow_path(path, &child_inode, last_fname);
+  printf("parent_inode: %d\n", parent_inode);
+  printf("child_inode: %d\n", child_inode);
+
+  if (parent_inode < 0)
+  {
+    // unknown error, somehow cannot follow the path
+    return -1;
+  }
+
+  if (parent_inode == 0 && child_inode == 0) 
+  {
+    // root path
+    osErrno = E_ROOT_DIR;
+    return -1;
+  }
+
+  if (child_inode == -1) 
+  {
+    // non-exist path
+    osErrno = E_NO_SUCH_DIR;
+    return -1;
+  }
+
+  int remove_inode_re = remove_inode(1, parent_inode, child_inode);
+  dprintf("[INFO] remove inode result = %d\n", remove_inode_re);
+  if (remove_inode_re == -2)
+  {
+      // dir is not empty
+      osErrno = E_DIR_NOT_EMPTY;
+      return -1;
+  } else if (remove_inode_re == -1 || remove_inode_re == -3) {
+      // unexpected error
+      dprintf("[WARN] unexpected error\n");
+      return -1;
+  }
+  return 0;
+}
 /**
  * Dir_Size() returns the number of bytes in the directory referred to by path. 
  * This function should be used to find the size of the directory before calling Dir_Read() (described below) 
