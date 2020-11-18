@@ -2412,7 +2412,7 @@ int Dir_Read(char* path, void* buffer, int size)
   inode_t* child = (inode_t*)(inode_buffer + offset * sizeof(inode_t));
   dprintf("... get child inode %d (size=%d, type=%d)\n", child_inode, child->size, child->type);
 
-  int groups = dir_size / FILE_OR_DIR_ENTRY_SIZE / DIRENTS_PER_SECTOR;
+  //int groups = dir_size / FILE_OR_DIR_ENTRY_SIZE / DIRENTS_PER_SECTOR;
   int total_entry_size = dir_size / FILE_OR_DIR_ENTRY_SIZE;
   char dirent_buffer[SECTOR_SIZE];
   
