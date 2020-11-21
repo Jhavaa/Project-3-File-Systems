@@ -1456,7 +1456,7 @@ int File_Unlink(char* file)
   // This function works under the assumption that the file being unlinked is 100% a file. dir_unlink assumes the opposite.
   //                        (This is checked in remove_inode, so that's totally fine)
 
-  if(remove_inode(1, parent_inode, child_inode) == 0) return 0;
+  if(remove_inode(0, parent_inode, child_inode) == 0) return 0;
 
   return -1;
 }
