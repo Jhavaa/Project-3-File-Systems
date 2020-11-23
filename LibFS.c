@@ -331,8 +331,6 @@ static int bitmap_reset(int start, int num, int ibit)
         unsigned char jth_byte=(unsigned char)buf[j];
         int bits[8];
 
-	dprintf("\nbits array: ");
-
         // save bits in array
         for(int k = 0; k < 8; k++)
         {
