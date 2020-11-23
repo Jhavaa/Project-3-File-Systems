@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
   for(int i=0; i<1000; i++) {
     sprintf(ptr, "%d %s", i, (i+1)%10==0 ? "\n" : "");
     ptr += strlen(ptr);
-    if(ptr >= buf+1000) break;
+    if(ptr >= buf+1024) break;
   }
   if(File_Write(fd, buf, 1024) != 1024)
     printf("ERROR: can't write 1024 bytes to fd=%d\n", fd);

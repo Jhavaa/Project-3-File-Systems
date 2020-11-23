@@ -3,7 +3,7 @@
 CC     = gcc
 OPTS   = -O -Wall 
 INCS   = 
-LIBS   = -R. -L. -lFS -lDisk
+LIBS   = -L. -lFS -lDisk
 SHLIBS = libDisk.so libFS.so
 
 SRCS   = main.c \
@@ -11,7 +11,9 @@ SRCS   = main.c \
 	slow-ls.c slow-mkdir.c slow-rmdir.c \
 	slow-touch.c slow-rm.c \
 	slow-cat.c slow-import.c slow-export.c \
-	$(wildcard testing/*.c) # This one will ensure all *.c files are compiled under testing dir
+        slow-export-not-open-neg.c \
+        slow-import_offset_size.c \
+        slow-import_offset_large_size.c
 
 OBJS   = $(SRCS:.c=.o)
 TARGETS = $(SRCS:.c=.exe)
@@ -19,8 +21,7 @@ TARGETS = $(SRCS:.c=.exe)
 all: $(TARGETS)
 
 clean:
-	rm -f $(TARGETS) $(OBJS) *.so *~
-	rm -f ./*.fs
+	rm -f $(TARGETS) $(OBJS) *~
 
 reset:	clean
 	make -f Makefile.LibDisk clean

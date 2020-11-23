@@ -1525,9 +1525,9 @@ int File_Read(int fd, void* buffer, int size)
     osErrno = E_BAD_FD;
     return -1;
   }
-  else if (open_files[fd].inode<0)
+  else if (open_files[fd].inode<=0)
   {
-    dprintf("... cannot read file: input file with a negative inode\n");
+    dprintf("... cannot read file: input file with a negative or zero inode\n");
     osErrno = E_BAD_FD;
     return -1;    
   }
@@ -1693,9 +1693,9 @@ int File_Write(int fd, void* buffer, int size)
     osErrno = E_BAD_FD;
     return -1;
   }
-  else if (open_files[fd].inode<0)
+  else if (open_files[fd].inode<=0)
   {
-    dprintf("... cannot write file: input file with a negative inode\n");
+    dprintf("... cannot write file: input file with a negative or a zero inode\n");
     osErrno = E_BAD_FD;
     return -1;    
   }
@@ -2014,55 +2014,61 @@ int File_Write(int fd, void* buffer, int size)
           dprintf("... write size %d bytes to disk sector %d for data block %d\n", SECTOR_SIZE,inode_entry->data[idatablock+1+i], idatablock+i+1);        
         }
 
-        // For the last data block        
-        if (Disk_Read(inode_entry->data[idatablock+1+nfull_datablocks], iblock_buf) < 0)
+        // For the last data block 
+        if(remaining_free_bytes+nfull_datablocks*SECTOR_SIZE<size)
         {
-           dprintf("... cannot load the data block: %d\n", idatablock);
-           return -1;
-        }      
-        dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);
+          // If the existing data blocks can exactly accomandate the data
+          // Then there is no addditonal data blcok
+          // Otherwise, need the last data block       
+          if (Disk_Read(inode_entry->data[idatablock+1+nfull_datablocks], iblock_buf) < 0)
+          {
+             dprintf("... cannot load the data block: %d\n", idatablock);
+             return -1;
+          }   
+          dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);
 
-        //dprintf("... existing data block data:\n");
-        //for(int itest=0; itest<SECTOR_SIZE; itest++)
-        //{
-        //  dprintf("%c", iblock_buf[itest]);
-        //}
-        //dprintf("\n"); 
+          //dprintf("... existing data block data:\n");
+          //for(int itest=0; itest<SECTOR_SIZE; itest++)
+          //{
+          //  dprintf("%c", iblock_buf[itest]);
+          //}
+          //dprintf("\n"); 
 
-        //memset(iblock_buf, 0, SECTOR_SIZE);  
-        memset(iblock_buf, 0, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);   
-        dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);
+          //memset(iblock_buf, 0, SECTOR_SIZE);  
+          memset(iblock_buf, 0, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);   
+          dprintf("... load disk sector %d for data block %d\n", inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);
         
-        //char temp_buf[SECTOR_SIZE];
-        //memcpy(temp_buf, iblock_buf,SECTOR_SIZE);
+          //char temp_buf[SECTOR_SIZE];
+          //memcpy(temp_buf, iblock_buf,SECTOR_SIZE);
 
-        memcpy(&iblock_buf[0], buffer+remaining_free_bytes+nfull_datablocks*SECTOR_SIZE, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);
+          memcpy(&iblock_buf[0], buffer+remaining_free_bytes+nfull_datablocks*SECTOR_SIZE, size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE);
 
-        //memcpy(&iblock_buf[size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE], temp_buf+size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE, SECTOR_SIZE-(size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE));
+          //memcpy(&iblock_buf[size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE], temp_buf+size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE, SECTOR_SIZE-(size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE));
         
-        // Test copied data
-        dprintf("... replaced data:\n");
-        for(int itest=0; itest<size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE; itest++)
-        {
-          dprintf("%c", iblock_buf[itest]);
+          // Test copied data
+          dprintf("... replaced data:\n");
+          for(int itest=0; itest<size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE; itest++)
+          {
+            dprintf("%c", iblock_buf[itest]);
+          }
+          dprintf("\n"); 
+
+          dprintf("... remaining data:\n");
+          for(int itest=size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE; itest<SECTOR_SIZE; itest++)
+          {
+            dprintf("%c", iblock_buf[itest]);
+          }
+          dprintf("\n"); 
+
+          // Write to disk for this data block 
+          if(Disk_Write(inode_entry->data[idatablock+1+nfull_datablocks], iblock_buf) < 0)
+          {
+             dprintf("... cannot write the data block: %d\n", idatablock+1+nfull_datablocks);
+             return -1;
+          }      
+          dprintf("... write size %d bytes to sector %d for data block %d\n", (size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE),inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);     
         }
-        dprintf("\n"); 
-
-        dprintf("... remaining data:\n");
-        for(int itest=size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE; itest<SECTOR_SIZE; itest++)
-        {
-          dprintf("%c", iblock_buf[itest]);
-        }
-        dprintf("\n"); 
-
-        // Write to disk for this data block 
-        if(Disk_Write(inode_entry->data[idatablock+1+nfull_datablocks], iblock_buf) < 0)
-        {
-           dprintf("... cannot write the data block: %d\n", idatablock+1+nfull_datablocks);
-           return -1;
-        }      
-        dprintf("... write size %d bytes to sector %d for data block %d\n", (size-remaining_free_bytes-nfull_datablocks*SECTOR_SIZE),inode_entry->data[idatablock+1+nfull_datablocks], idatablock+1+nfull_datablocks);     
-
+        
         // Update inode information
         if (curr_position+size>inodefile_size)
         {
