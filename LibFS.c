@@ -340,6 +340,12 @@ static int bitmap_reset(int start, int num, int ibit)
         // Reset bit in 'pos' position
         bits[pos] = 0;
 
+        unsigned char byte_128 = 128;
+        for (int m=0;m<8;m++)
+        {
+            dprintf("%d", !!((((unsigned char)buf[j])<< m) & byte_128));
+        }
+
         // Write back to disk
         buf[j]=bits_to_byte(bits);
         Disk_Write(i, buf);
@@ -348,6 +354,7 @@ static int bitmap_reset(int start, int num, int ibit)
         return 0;
       }
     }
+    bit_count = 0;
   }
   // Unsuccessful reset
   return -1;
