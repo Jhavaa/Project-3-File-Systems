@@ -312,7 +312,7 @@ static int bitmap_reset(int start, int num, int ibit)
   int pos = ibit % 8;
 
   // Loop through all the bitmap sectors
-  for (int i = start; i < num; i++)
+  for (int i = start; i <= num; i++)
   {
     // Save the ith sector into buf
     Disk_Read(i, buf);
@@ -1052,11 +1052,11 @@ int remove_inode(int type, int parent_inode, int child_inode)
   // inode_start_entry is the position where the inode we are looking for is located.
   // EX1: child_inode = 1, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
   // inode_start_entry = (2 - 2) * 10 == 0 * 10 == 0
-  // The inode we are looking for has a 0 in the tens place
+  // The inode we are looking for is in a sector with starting inode 0
   //
   // EX2: child_inode = 24, INODE_TABLE_START_SECTOR = 2, INODES_PER_SECTOR = 10
   // inode_start_entry = (4 - 2) * 10 == 2 * 10 == 20
-  // The inode we are looking for has a 2 in the tens place
+  // The inode we are looking for is in a sector with starting inode 20
   int inode_start_entry = (inode_sector-INODE_TABLE_START_SECTOR)*INODES_PER_SECTOR;
 
   // offset is the offset value from the start of the sector.
