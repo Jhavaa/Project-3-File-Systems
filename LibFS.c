@@ -341,21 +341,23 @@ static int bitmap_reset(int start, int num, int ibit)
         bits[pos] = 0;
 
 	unsigned char byte_128 = 128;
-	dprintf("\n... Before reset:");
+	dprintf("...... Before reset:");
         for (int m=0;m<8;m++)
         {
             dprintf("%d", !!((((unsigned char)buf[j])<< m) & byte_128));
         }
+	dprintf("\n");
 
         // Write back to disk
         buf[j]=bits_to_byte(bits);
 
-	dprintf("\n... After reset: ");
+	dprintf("\n...... After reset: ");
         for (int m=0;m<8;m++)
         {
             dprintf("%d", !!((((unsigned char)buf[j])<< m) & byte_128));
         }
-        
+        dprintf("\n");
+
 	Disk_Write(i, buf);
 
         // Successful reset
